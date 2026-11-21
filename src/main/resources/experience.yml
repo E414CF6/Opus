@@ -1,0 +1,433 @@
+# Opus Experience Curves, Multipliers, Exploit Guards & XP Values
+
+early-game-boost:
+  enabled: true
+
+formula:
+  # LINEAR: base + (level * multiplier)
+  # EXPONENTIAL: multiplier * (level ^ exponent) + base
+  curve: LINEAR
+  linear:
+    base: 1020.0
+    multiplier: 20.0
+  exponential:
+    multiplier: 0.1
+    exponent: 1.80
+    base: 2000.0
+  cumulative-curve: false
+
+multipliers:
+  global: 1.0
+  pvp: 1.0
+  custom-xp-perk-boost: 1.25
+  spawn-reasons:
+    spawner: 0.0
+    spawn-egg: 0.0
+    nether-portal: 0.0
+    breeding: 1.0
+    player-tamed: 0.0
+  skills:
+    acrobatics: 1.0
+    alchemy: 1.0
+    archery: 1.0
+    axes: 1.0
+    crossbows: 1.0
+    excavation: 1.0
+    fishing: 1.0
+    herbalism: 1.0
+    maces: 1.0
+    mining: 1.0
+    repair: 1.0
+    salvage: 1.0
+    smelting: 1.0
+    spears: 1.0
+    swords: 1.0
+    taming: 1.0
+    tridents: 1.0
+    unarmed: 1.0
+    woodcutting: 1.0
+
+exploit-fix:
+  combat-xp-ceiling:
+    enabled: true
+    damage-limit: 100.0
+  acrobatics-dodge-xp-farming: true
+  dodge-xp-cap-per-mob: 2400.0
+  fishing-anti-exploit: true
+  fishing-move-range: 3.0
+  fishing-overfish-limit: 10
+  tree-feller-reduced-xp: true
+  limit-tall-plant-farming: true
+  piston-cheating: true
+
+diminished-returns:
+  enabled: false
+  time-interval-minutes: 10
+  guaranteed-minimum-percentage: 0.05
+  default-threshold: 20000.0
+
+values:
+  acrobatics:
+    dodge: 800.0
+    roll: 600.0
+    fall: 600.0
+    feather-falling-multiplier: 2.0
+
+  alchemy:
+    stage-1: 666.0
+    stage-2: 1111.0
+    stage-3: 1750.0
+    stage-4: 2250.0
+    stage-5: 0.0
+
+  archery:
+    distance-multiplier: 0.025
+
+  fishing:
+    COD: 100.0
+    SALMON: 600.0
+    TROPICAL_FISH: 10000.0
+    PUFFERFISH: 2400.0
+    SHAKE: 50.0
+
+  repair:
+    base: 1000.0
+    materials:
+      WOOD: 0.6
+      STONE: 1.3
+      COPPER: 2.0
+      IRON: 2.5
+      GOLD: 0.3
+      DIAMOND: 5.0
+      NETHERITE: 6.0
+      LEATHER: 1.6
+      STRING: 1.8
+      OTHER: 1.5
+
+  salvage:
+    base: 600.0
+
+  smelting:
+    ANCIENT_DEBRIS: 200.0
+    DEEPSLATE_DIAMOND_ORE: 140.0
+    DEEPSLATE_EMERALD_ORE: 110.0
+    EMERALD_ORE: 100.0
+    DIAMOND_ORE: 75.0
+    DEEPSLATE_LAPIS_ORE: 60.0
+    DEEPSLATE_GOLD_ORE: 50.0
+    DEEPSLATE_IRON_ORE: 40.0
+    LAPIS_ORE: 40.0
+    GOLD_ORE: 35.0
+    RAW_GOLD: 35.0
+    NETHER_GOLD_ORE: 35.0
+    DEEPSLATE_REDSTONE_ORE: 30.0
+    IRON_ORE: 25.0
+    RAW_IRON: 25.0
+    NETHER_QUARTZ_ORE: 25.0
+    DEEPSLATE_COPPER_ORE: 25.0
+    DEEPSLATE_COAL_ORE: 20.0
+    COPPER_ORE: 15.0
+    RAW_COPPER: 15.0
+    REDSTONE_ORE: 15.0
+    COAL_ORE: 10.0
+    COBBLED_DEEPSLATE: 5.0
+
+  excavation:
+    CLAY: 40.0
+    DIRT: 40.0
+    ROOTED_DIRT: 60.0
+    COARSE_DIRT: 40.0
+    PODZOL: 40.0
+    GRASS_BLOCK: 40.0
+    GRAVEL: 40.0
+    MYCELIUM: 40.0
+    SAND: 40.0
+    RED_SAND: 40.0
+    SNOW: 20.0
+    SNOW_BLOCK: 40.0
+    SOUL_SAND: 40.0
+    SOUL_SOIL: 40.0
+    MUD: 80.0
+    MUDDY_MANGROVE_ROOTS: 90.0
+
+  woodcutting:
+    PALE_OAK_LOG: 130.0
+    PALE_OAK_WOOD: 110.0
+    STRIPPED_PALE_OAK_LOG: 130.0
+    STRIPPED_PALE_OAK_WOOD: 90.0
+    CHERRY_LOG: 105.0
+    STRIPPED_CHERRY_LOG: 105.0
+    CHERRY_WOOD: 105.0
+    STRIPPED_CHERRY_WOOD: 70.0
+    JUNGLE_LOG: 100.0
+    STRIPPED_JUNGLE_LOG: 100.0
+    JUNGLE_WOOD: 70.0
+    STRIPPED_JUNGLE_WOOD: 100.0
+    SHROOMLIGHT: 100.0
+    MANGROVE_LOG: 95.0
+    STRIPPED_MANGROVE_LOG: 110.0
+    MANGROVE_WOOD: 80.0
+    MANGROVE_ROOTS: 10.0
+    BIRCH_LOG: 90.0
+    STRIPPED_BIRCH_LOG: 90.0
+    BIRCH_WOOD: 70.0
+    STRIPPED_BIRCH_WOOD: 90.0
+    ACACIA_LOG: 90.0
+    STRIPPED_ACACIA_LOG: 90.0
+    ACACIA_WOOD: 70.0
+    STRIPPED_ACACIA_WOOD: 90.0
+    DARK_OAK_LOG: 90.0
+    STRIPPED_DARK_OAK_LOG: 90.0
+    DARK_OAK_WOOD: 70.0
+    STRIPPED_DARK_OAK_WOOD: 90.0
+    SPRUCE_LOG: 80.0
+    STRIPPED_SPRUCE_LOG: 80.0
+    SPRUCE_WOOD: 70.0
+    STRIPPED_SPRUCE_WOOD: 80.0
+    MUSHROOM_STEM: 80.0
+    OAK_LOG: 70.0
+    STRIPPED_OAK_LOG: 70.0
+    OAK_WOOD: 70.0
+    STRIPPED_OAK_WOOD: 70.0
+    RED_MUSHROOM_BLOCK: 70.0
+    BROWN_MUSHROOM_BLOCK: 70.0
+    CRIMSON_HYPHAE: 50.0
+    STRIPPED_CRIMSON_HYPHAE: 50.0
+    WARPED_HYPHAE: 50.0
+    STRIPPED_WARPED_HYPHAE: 50.0
+    STRIPPED_CRIMSON_STEM: 50.0
+    STRIPPED_WARPED_STEM: 50.0
+    CRIMSON_STEM: 35.0
+    WARPED_STEM: 35.0
+
+  herbalism:
+    WITHER_ROSE: 500.0
+    ALLIUM: 300.0
+    SHROOMLIGHT: 250.0
+    BEE_NEST: 200.0
+    HORN_CORAL: 175.0
+    HORN_CORAL_FAN: 175.0
+    HORN_CORAL_WALL_FAN: 175.0
+    PITCHER_PLANT: 160.0
+    MOSS_BLOCK: 150.0
+    AZURE_BLUET: 150.0
+    BLUE_ORCHID: 150.0
+    BROWN_MUSHROOM: 150.0
+    RED_MUSHROOM: 150.0
+    ORANGE_TULIP: 150.0
+    OXEYE_DAISY: 150.0
+    PINK_TULIP: 150.0
+    RED_TULIP: 150.0
+    WHITE_TULIP: 150.0
+    CORNFLOWER: 150.0
+    LILY_OF_THE_VALLEY: 150.0
+    SMALL_DRIPLEAF: 140.0
+    BIG_DRIPLEAF: 140.0
+    FIRE_CORAL: 120.0
+    FIRE_CORAL_FAN: 120.0
+    FIRE_CORAL_WALL_FAN: 120.0
+    POPPY: 100.0
+    DANDELION: 100.0
+    LILY_PAD: 100.0
+    TORCHFLOWER: 90.0
+    CAVE_VINES: 90.0
+    CAVE_VINES_PLANT: 90.0
+    BRAIN_CORAL: 90.0
+    BRAIN_CORAL_FAN: 90.0
+    BRAIN_CORAL_WALL_FAN: 90.0
+    TUBE_CORAL: 80.0
+    TUBE_CORAL_FAN: 80.0
+    TUBE_CORAL_WALL_FAN: 80.0
+    BUBBLE_CORAL: 75.0
+    BUBBLE_CORAL_FAN: 75.0
+    BUBBLE_CORAL_WALL_FAN: 75.0
+    OPEN_EYEBLOSSOM: 66.0
+    CLOSED_EYEBLOSSOM: 66.0
+    WHEAT: 50.0
+    CARROTS: 50.0
+    POTATOES: 50.0
+    BEETROOTS: 50.0
+    NETHER_WART: 50.0
+    SWEET_BERRY_BUSH: 50.0
+    CRIMSON_FUNGUS: 50.0
+    WARPED_FUNGUS: 50.0
+    LILAC: 50.0
+    PEONY: 50.0
+    ROSE_BUSH: 50.0
+    SUNFLOWER: 50.0
+    TALL_GRASS: 50.0
+    LARGE_FERN: 50.0
+    CACTUS: 30.0
+    COCOA: 30.0
+    DEAD_BUSH: 30.0
+    SUGAR_CANE: 30.0
+    CHORUS_FLOWER: 25.0
+    MELON: 20.0
+    PUMPKIN: 20.0
+    FERN: 10.0
+    SHORT_GRASS: 10.0
+    SEAGRASS: 10.0
+    TALL_SEAGRASS: 10.0
+    VINE: 10.0
+    WEEPING_VINES_PLANT: 10.0
+    TWISTING_VINES_PLANT: 10.0
+    BAMBOO: 10.0
+    PINK_PETALS: 10.0
+    WILDFLOWERS: 15.0
+    LEAF_LITTER: 2.0
+    KELP: 3.0
+    KELP_PLANT: 3.0
+
+  mining:
+    ANCIENT_DEBRIS: 7777.0
+    DEEPSLATE_DIAMOND_ORE: 3600.0
+    CRYING_OBSIDIAN: 3000.0
+    DIAMOND_ORE: 2400.0
+    DEEPSLATE_GOLD_ORE: 1900.0
+    DEEPSLATE_EMERALD_ORE: 1700.0
+    DEEPSLATE_LAPIS_ORE: 1400.0
+    GOLD_ORE: 1300.0
+    NETHER_GOLD_ORE: 1300.0
+    DEEPSLATE_IRON_ORE: 1300.0
+    EMERALD_ORE: 1000.0
+    IRON_ORE: 900.0
+    DEEPSLATE_REDSTONE_ORE: 900.0
+    LAPIS_ORE: 800.0
+    DEEPSLATE_COPPER_ORE: 750.0
+    DEEPSLATE_COAL_ORE: 700.0
+    REDSTONE_ORE: 600.0
+    COPPER_ORE: 500.0
+    AMETHYST_BLOCK: 500.0
+    BONE_BLOCK: 500.0
+    REINFORCED_DEEPSLATE: 500.0
+    CALCITE: 400.0
+    BUDDING_AMETHYST: 400.0
+    COAL_ORE: 400.0
+    SMOOTH_BASALT: 300.0
+    NETHER_QUARTZ_ORE: 300.0
+    PURPUR_PILLAR: 250.0
+    PURPUR_STAIRS: 250.0
+    PURPUR_BLOCK: 200.0
+    GILDED_BLACKSTONE: 200.0
+    OBSIDIAN: 150.0
+    PURPUR_SLAB: 150.0
+    HORN_CORAL_BLOCK: 125.0
+    RED_SANDSTONE: 100.0
+    FIRE_CORAL_BLOCK: 90.0
+    BRAIN_CORAL_BLOCK: 80.0
+    TUBE_CORAL_BLOCK: 75.0
+    BUBBLE_CORAL_BLOCK: 70.0
+    PRISMARINE: 70.0
+    PRISMARINE_BRICKS: 70.0
+    DARK_PRISMARINE: 70.0
+    SEA_LANTERN: 70.0
+    AMETHYST_CLUSTER: 60.0
+    BLACKSTONE: 55.0
+    STONE_BRICKS: 50.0
+    CRACKED_STONE_BRICKS: 50.0
+    MOSSY_STONE_BRICKS: 50.0
+    CHISELED_STONE_BRICKS: 50.0
+    NETHER_BRICKS: 50.0
+    RED_NETHER_BRICKS: 50.0
+    TERRACOTTA: 30.0
+    BASALT: 40.0
+    MUD_BRICKS: 40.0
+    DRIPSTONE_BLOCK: 35.0
+    DEEPSLATE: 30.0
+    MAGMA_BLOCK: 30.0
+    MOSSY_COBBLESTONE: 30.0
+    SANDSTONE: 30.0
+    PACKED_MUD: 30.0
+    STONE: 15.0
+    GRANITE: 15.0
+    ANDESITE: 15.0
+    DIORITE: 15.0
+    COBBLED_DEEPSLATE: 15.0
+    END_STONE: 15.0
+    GLOWSTONE: 15.0
+    NETHERRACK: 15.0
+    PACKED_ICE: 15.0
+    BLUE_ICE: 15.0
+    TUFF: 10.0
+    SCULK: 4.0
+
+  taming:
+    NAUTILUS: 1700.0
+    ZOMBIE_NAUTILUS: 1700.0
+    SNIFFER: 1500.0
+    CAMEL: 1300.0
+    CAMEL_HUSK: 1300.0
+    LLAMA: 1200.0
+    PARROT: 1100.0
+    HORSE: 1000.0
+    DONKEY: 1000.0
+    MULE: 1000.0
+    SKELETON_HORSE: 1000.0
+    ZOMBIE_HORSE: 1000.0
+    FOX: 1000.0
+    PANDA: 1000.0
+    FROG: 900.0
+    AXOLOTL: 600.0
+    OCELOT: 500.0
+    CAT: 500.0
+    WOLF: 250.0
+    GOAT: 250.0
+    BEE: 100.0
+
+  combat:
+    default-multiplier: 1.0
+    entity-multipliers:
+      WARDEN: 6.0
+      PIGLIN_BRUTE: 4.5
+      CREEPER: 4.0
+      GIANT: 4.0
+      WITHER_SKELETON: 4.0
+      ELDER_GUARDIAN: 4.0
+      PHANTOM: 4.0
+      RAVAGER: 4.0
+      HOGLIN: 4.0
+      BREEZE: 4.0
+      SKELETON: 3.0
+      GHAST: 3.0
+      ZOMBIFIED_PIGLIN: 3.0
+      CAVE_SPIDER: 3.0
+      SILVERFISH: 3.0
+      BLAZE: 3.0
+      HUSK: 3.0
+      EVOKER: 3.0
+      VINDICATOR: 3.0
+      ILLUSIONER: 3.0
+      PARCHED: 2.5
+      ZOGLIN: 2.5
+      SPIDER: 2.0
+      ZOMBIE: 2.0
+      SLIME: 2.0
+      MAGMA_CUBE: 2.0
+      IRON_GOLEM: 2.0
+      ENDERMITE: 2.0
+      SHULKER: 2.0
+      ZOMBIE_VILLAGER: 2.0
+      POLAR_BEAR: 2.0
+      STRAY: 2.0
+      PILLAGER: 2.0
+      PIGLIN: 2.0
+      BOGGED: 2.0
+      AXOLOTL: 1.75
+      FROG: 1.7
+      BEE: 1.5
+      GOAT: 1.5
+      GLOW_SQUID: 1.5
+      DOLPHIN: 1.3
+      CAMEL_HUSK: 1.25
+      CAMEL: 1.2
+      MOOSHROOM: 1.2
+      ZOMBIE_HORSE: 1.2
+      SNIFFER: 1.1
+      TURTLE: 1.1
+      ARMADILLO: 1.1
+      ALLAY: 0.2
+      TADPOLE: 0.2
+      WITCH: 0.1
+      SNOW_GOLEM: 0.0
+      ARMOR_STAND: 0.0
+      MANNEQUIN: 0.0

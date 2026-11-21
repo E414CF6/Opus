@@ -1,0 +1,252 @@
+# Opus Skills, SubSkills, Super Abilities, and Level Caps
+
+general:
+  adjust-for-attack-cooldown: true
+  limit-break-allow-pve: false
+  ability:
+    base-duration-seconds: 2
+    max-duration-seconds: 22
+    standard-increase-level: 5
+    standard-cap-level: 100
+    retro-increase-level: 50
+    retro-cap-level: 1000
+    cooldown-seconds: 240
+    enchant-buff-level: 5
+
+level-caps:
+  default: 0
+
+pvp-enabled:
+  default: true
+pve-enabled:
+  default: true
+
+acrobatics:
+  dodge:
+    chance-max: 20.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+    damage-modifier: 2.0
+  roll:
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+    damage-threshold: 7.0
+    graceful-damage-threshold: 14.0
+
+alchemy:
+  catalysis:
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+    min-speed: 1.0
+    max-speed: 4.0
+
+archery:
+  skill-shot:
+    rank-damage-multiplier: 10.0
+    max-damage: 9.0
+  daze:
+    chance-max: 50.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+    bonus-damage: 4.0
+  arrow-retrieval:
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+
+axes:
+  axe-mastery:
+    rank-damage-multiplier: 1.0
+  critical-strikes:
+    chance-max: 37.5
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+    pvp-modifier: 1.5
+    pve-modifier: 2.0
+  greater-impact:
+    chance: 25.0
+    knockback-modifier: 1.5
+    bonus-damage: 2.0
+  armor-impact:
+    chance: 25.0
+    damage-per-rank: 6.5
+    max-percentage-durability-damage: 20.0
+  skull-splitter:
+    damage-modifier: 2.0
+
+crossbows:
+  powered-shot:
+    rank-damage-multiplier: 10.0
+    max-damage: 9.0
+
+fishing:
+  shake-chances: [ 15.0, 20.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0 ]
+  vanilla-xp-multipliers: [ 1, 2, 3, 3, 4, 4, 5, 5 ]
+  master-angler:
+    boat-min-wait-reduction: 10
+    boat-max-wait-reduction: 30
+    rank-min-wait-reduction: 10
+    rank-max-wait-reduction: 30
+    cap-min-wait: 40
+    cap-max-wait: 100
+
+herbalism:
+  double-drops:
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  verdant-bounty:
+    chance-max: 50.0
+    max-bonus-level-standard: 1000
+    max-bonus-level-retro: 10000
+  green-thumb:
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  hylian-luck:
+    chance-max: 10.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  shroom-thumb:
+    chance-max: 50.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+
+maces:
+  crush:
+    base-damage: 0.5
+    rank-damage-multiplier: 1.0
+  cripple:
+    chances: [ 10.0, 15.0, 20.0, 33.0 ]
+
+mining:
+  double-drops:
+    silk-touch: true
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  mother-lode:
+    chance-max: 50.0
+    max-bonus-level-standard: 1000
+    max-bonus-level-retro: 10000
+  super-breaker:
+    allow-triple-drops: true
+  blast-mining:
+    remote-detonation-distance: 100.0
+    bonus-drops-enabled: true
+    blast-damage-decrease: [ 0.0, 0.0, 0.0, 25.0, 25.0, 50.0, 50.0, 100.0 ]
+    ore-bonus: [ 35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0 ]
+    blast-radius-modifier: [ 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0 ]
+
+repair:
+  repair-mastery:
+    max-bonus-percentage: 200.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  super-repair:
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  arcane-forging:
+    may-lose-enchants: true
+    downgrades-enabled: true
+    max-enchant-level: 5
+    keep-chances: [ 10.0, 20.0, 30.0, 40.0, 50.0, 50.0, 60.0, 60.0 ]
+    downgrade-chances: [ 75.0, 50.0, 40.0, 30.0, 25.0, 20.0, 15.0, 10.0 ]
+
+salvage:
+  arcane-salvage:
+    enchant-loss-enabled: true
+    enchant-downgrade-enabled: true
+    max-enchant-level: 5
+    extract-full-chances: [ 2.5, 5.0, 7.5, 10.0, 12.5, 17.5, 25.0, 32.5 ]
+    extract-partial-chances: [ 2.0, 2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 17.5 ]
+
+smelting:
+  second-smelt:
+    chance-max: 50.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  flux-mining:
+    chance: 33.0
+  vanilla-xp-multipliers: [ 1, 2, 3, 3, 4, 4, 5, 5 ]
+
+spears:
+  spear-mastery:
+    rank-damage-multiplier: 0.4
+  momentum:
+    chances: [ 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0 ]
+
+swords:
+  stab:
+    base-damage: 1.0
+    per-rank-multiplier: 1.5
+  rupture:
+    chances: [ 15.0, 33.0, 40.0, 66.0 ]
+    duration-seconds: 5
+    player-tick-damage: [ 0.1, 0.15, 0.2, 0.3 ]
+    mob-tick-damage: [ 0.5, 0.75, 0.9, 1.0 ]
+  counter-attack:
+    chance-max: 30.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+    damage-modifier: 2.0
+  serrated-strikes:
+    damage-modifier: 4.0
+
+taming:
+  gore:
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+    modifier: 2.0
+  fast-food-service:
+    chance: 50.0
+  thick-fur:
+    modifier: 2.0
+  shock-proof:
+    modifier: 6.0
+  sharpened-claws:
+    bonus: 2.0
+  pummel:
+    chance: 10.0
+  call-of-the-wild:
+    wolf-bones: 10
+    ocelot-fish: 10
+    horse-apples: 10
+    cooldown-seconds: 30
+
+tridents:
+  impale:
+    base-damage: 1.0
+    rank-damage-multiplier: 0.5
+
+unarmed:
+  disarm:
+    chance-max: 33.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  arrow-deflect:
+    chance-max: 50.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  iron-grip:
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  steel-arm-style:
+    rank-damage: [ 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 10.5, 12.0, 13.5 ]
+
+woodcutting:
+  tree-feller:
+    max-logs: 500
+    add-xp-orbs-to-drops: true
+  harvest-lumber:
+    chance-max: 100.0
+    max-bonus-level-standard: 100
+    max-bonus-level-retro: 1000
+  clean-cuts:
+    chance-max: 50.0
+    max-bonus-level-standard: 1000
+    max-bonus-level-retro: 10000

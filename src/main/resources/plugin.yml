@@ -1,0 +1,57 @@
+name: Opus
+version: '${version}'
+main: opus.OpusPlugin
+api-version: '26.3'
+folia-supported: true
+load: POSTWORLD
+softdepend: [ PlaceholderAPI, WorldGuard ]
+description: Modern Kotlin RPG Skills & Progression Plugin for Paper 26.3
+
+permissions:
+  opus.admin:
+    description: Grants full administrative access to Opus
+    default: op
+  opus.command:
+    description: Grants access to base /opus command and player skill commands
+    default: true
+  opus.defaults:
+    description: Default player permissions for Opus RPG gameplay
+    default: true
+    children:
+      opus.command: true
+      opus.skill.*: true
+      opus.ability.*: true
+      opus.party.user: true
+      opus.chat.partychat: true
+      opus.broadcast.levelup: true
+      opus.hud.use: true
+  opus.skill.*:
+    description: Grants access to earn XP and use all skills
+    default: true
+  opus.ability.*:
+    description: Grants access to all skill subskills and super abilities
+    default: true
+  opus.party.user:
+    description: Grants access to party creation, joining, and teleportation
+    default: true
+  opus.chat.partychat:
+    description: Grants access to party chat
+    default: true
+  opus.chat.adminchat:
+    description: Grants access to admin chat
+    default: op
+  opus.chat.spy:
+    description: Grants access to spy on party chat
+    default: op
+  opus.broadcast.levelup:
+    description: Allows level-up milestone broadcasts for this player
+    default: true
+  opus.hud.use:
+    description: Grants access to BossBar, ActionBar, and Scoreboard HUD commands
+    default: true
+  opus.bypass.cooldown:
+    description: Bypasses ability cooldowns
+    default: op
+  opus.bypass.partyteleport:
+    description: Bypasses party teleport warmup and cooldown
+    default: op

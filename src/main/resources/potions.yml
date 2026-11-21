@@ -1,0 +1,114 @@
+# Opus Alchemy Concoctions Configuration
+# Concoctions unlock special brewing ingredients per Alchemy Concoctions Rank (1-8).
+
+concoctions:
+  rank-ingredients:
+    1:
+      - NETHER_WART
+      - REDSTONE
+      - GLOWSTONE_DUST
+      - FERMENTED_SPIDER_EYE
+      - GUNPOWDER
+      - DRAGON_BREATH
+      - SUGAR
+      - RABBIT_FOOT
+      - BLAZE_POWDER
+      - GLISTERING_MELON_SLICE
+      - SPIDER_EYE
+      - GHAST_TEAR
+      - MAGMA_CREAM
+      - PUFFERFISH
+      - GOLDEN_CARROT
+      - TURTLE_HELMET
+      - PHANTOM_MEMBRANE
+      - BREEZE_ROD
+    2:
+      - CARROT
+      - SLIME_BALL
+    3:
+      - QUARTZ
+    4:
+      - APPLE
+      - ROTTEN_FLESH
+    5:
+      - BROWN_MUSHROOM
+      - INK_SAC
+    6:
+      - FERN
+    7:
+      - POISONOUS_POTATO
+    8:
+      - GOLDEN_APPLE
+
+  # Custom concoctions brewed from AWKWARD (or specified base) + ingredient -> resulting PotionEffect
+  custom-recipes:
+    CARROT:
+      name: "<gold>야간 투시 비약</gold>"
+      effect: NIGHT_VISION
+      duration-ticks: 3600
+      amplifier: 0
+      color-rgb: 0x1F1FA1
+      min-rank: 2
+    SLIME_BALL:
+      name: "<green>도약의 물약</green>"
+      effect: JUMP_BOOST
+      duration-ticks: 2400
+      amplifier: 1
+      color-rgb: 0x22FF4C
+      min-rank: 2
+    QUARTZ:
+      name: "<white>성급함의 영약</white>"
+      effect: HASTE
+      duration-ticks: 2400
+      amplifier: 1
+      color-rgb: 0xE3C16F
+      min-rank: 3
+    APPLE:
+      name: "<light_purple>생명력 강화 비약</light_purple>"
+      effect: HEALTH_BOOST
+      duration-ticks: 2400
+      amplifier: 0
+      color-rgb: 0xF87D23
+      min-rank: 4
+    ROTTEN_FLESH:
+      name: "<dark_green>허기의 물약</dark_green>"
+      effect: HUNGER
+      duration-ticks: 1200
+      amplifier: 1
+      color-rgb: 0x587653
+      min-rank: 4
+    BROWN_MUSHROOM:
+      name: "<yellow>멀미의 물약</yellow>"
+      effect: NAUSEA
+      duration-ticks: 600
+      amplifier: 0
+      color-rgb: 0x551D4A
+      min-rank: 5
+    INK_SAC:
+      name: "<dark_gray>실명의 물약</dark_gray>"
+      effect: BLINDNESS
+      duration-ticks: 600
+      amplifier: 0
+      color-rgb: 0x1F1F23
+      min-rank: 5
+    FERN:
+      name: "<aqua>행운의 물약</aqua>"
+      effect: LUCK
+      duration-ticks: 3600
+      amplifier: 0
+      color-rgb: 0x339900
+      min-rank: 6
+    POISONOUS_POTATO:
+      name: "<dark_purple>시듦의 영약</dark_purple>"
+      effect: WITHER
+      duration-ticks: 600
+      amplifier: 1
+      color-rgb: 0x352A27
+      min-rank: 7
+    GOLDEN_APPLE:
+      name: "<gold>흡수의 영약</gold>"
+      effect: ABSORPTION
+      duration-ticks: 2400
+      amplifier: 2
+      color-rgb: 0xFFD700
+      min-rank: 8

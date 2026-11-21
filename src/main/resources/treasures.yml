@@ -1,0 +1,196 @@
+# Opus Treasures: Excavation Archaeology, Fishing Treasure Hunter & Shake
+
+excavation:
+  HEART_OF_THE_SEA:
+    amount: 1
+    xp: 9999.0
+    chance: 0.01
+    level-standard: 90
+    level-retro: 900
+    blocks: [ MUD ]
+  DIAMOND:
+    amount: 1
+    xp: 1000.0
+    chance: 0.13
+    level-standard: 35
+    level-retro: 350
+    blocks: [ DIRT, COARSE_DIRT, PODZOL, GRASS_BLOCK, SAND, RED_SAND, GRAVEL, CLAY, MYCELIUM, SOUL_SAND, SOUL_SOIL, MUD ]
+  NAME_TAG:
+    amount: 1
+    xp: 3000.0
+    chance: 0.05
+    level-standard: 25
+    level-retro: 250
+    blocks: [ DIRT, COARSE_DIRT, PODZOL, GRASS_BLOCK, SAND, RED_SAND, GRAVEL, CLAY, MYCELIUM, SOUL_SAND, SOUL_SOIL ]
+  CAKE:
+    amount: 1
+    xp: 3000.0
+    chance: 0.05
+    level-standard: 75
+    level-retro: 750
+    blocks: [ DIRT, COARSE_DIRT, PODZOL, GRASS_BLOCK, SAND, RED_SAND, GRAVEL, CLAY, MYCELIUM, SOUL_SAND, SOUL_SOIL ]
+  TRIDENT:
+    amount: 1
+    xp: 100.0
+    chance: 0.02
+    level-standard: 40
+    level-retro: 400
+    blocks: [ MUD, CLAY, MUDDY_MANGROVE_ROOTS ]
+  SPYGLASS:
+    amount: 1
+    xp: 500.0
+    chance: 0.1
+    level-standard: 7
+    level-retro: 70
+    blocks: [ MUD, DIRT ]
+  GLOWSTONE_DUST:
+    amount: 1
+    xp: 80.0
+    chance: 5.0
+    level-standard: 10
+    level-retro: 100
+    blocks: [ DIRT, GRASS_BLOCK, SAND, MYCELIUM, SOUL_SAND, SOUL_SOIL ]
+  GUNPOWDER:
+    amount: 1
+    xp: 30.0
+    chance: 10.0
+    level-standard: 10
+    level-retro: 100
+    blocks: [ GRAVEL ]
+  BONE:
+    amount: 1
+    xp: 30.0
+    chance: 10.0
+    level-standard: 20
+    level-retro: 200
+    blocks: [ GRAVEL, MUD ]
+  SLIME_BALL:
+    amount: 1
+    xp: 100.0
+    chance: 5.0
+    level-standard: 15
+    level-retro: 150
+    blocks: [ CLAY ]
+  STRING:
+    amount: 1
+    xp: 200.0
+    chance: 5.0
+    level-standard: 5
+    level-retro: 50
+    blocks: [ CLAY ]
+  FEATHER:
+    amount: 3
+    xp: 100.0
+    chance: 1.0
+    level-standard: 5
+    level-retro: 50
+    blocks: [ MUD ]
+  STICK:
+    amount: 2
+    xp: 50.0
+    chance: 2.0
+    level-standard: 1
+    level-retro: 10
+    blocks: [ MUD, MUDDY_MANGROVE_ROOTS ]
+  POTATO:
+    amount: 1
+    xp: 50.0
+    chance: 3.0
+    level-standard: 10
+    level-retro: 100
+    blocks: [ DIRT, MUD ]
+  APPLE:
+    amount: 1
+    xp: 100.0
+    chance: 0.1
+    level-standard: 25
+    level-retro: 250
+    blocks: [ GRASS_BLOCK, MYCELIUM ]
+  EGG:
+    amount: 1
+    xp: 100.0
+    chance: 1.0
+    level-standard: 25
+    level-retro: 250
+    blocks: [ GRASS_BLOCK ]
+  QUARTZ:
+    amount: 1
+    xp: 100.0
+    chance: 0.5
+    level-standard: 30
+    level-retro: 300
+    blocks: [ SOUL_SAND, SOUL_SOIL ]
+
+fishing:
+  rarity-weights:
+    COMMON: 60.0
+    UNCOMMON: 25.0
+    RARE: 10.0
+    EPIC: 3.5
+    LEGENDARY: 1.2
+    MYTHIC: 0.3
+  # Minimum Treasure Hunter rank (1-8) to roll each tier
+  rank-unlocks:
+    COMMON: 1
+    UNCOMMON: 1
+    RARE: 2
+    EPIC: 4
+    LEGENDARY: 6
+    MYTHIC: 8
+  items:
+    LEATHER_BOOTS:
+      rarity: COMMON
+      amount: 1
+      xp: 200.0
+    LAPIS_LAZULI:
+      rarity: COMMON
+      amount: 8
+      xp: 200.0
+    COAL:
+      rarity: COMMON
+      amount: 4
+      xp: 150.0
+    COPPER_INGOT:
+      rarity: UNCOMMON
+      amount: 3
+      xp: 250.0
+    IRON_INGOT:
+      rarity: UNCOMMON
+      amount: 2
+      xp: 350.0
+    COPPER_SWORD:
+      rarity: UNCOMMON
+      amount: 1
+      xp: 200.0
+    GOLD_INGOT:
+      rarity: RARE
+      amount: 2
+      xp: 500.0
+    NAME_TAG:
+      rarity: RARE
+      amount: 1
+      xp: 800.0
+    DIAMOND:
+      rarity: EPIC
+      amount: 1
+      xp: 1500.0
+    ENCHANTED_BOOK:
+      rarity: EPIC
+      amount: 1
+      xp: 1200.0
+    HEART_OF_THE_SEA:
+      rarity: LEGENDARY
+      amount: 1
+      xp: 3000.0
+    TRIDENT:
+      rarity: LEGENDARY
+      amount: 1
+      xp: 3500.0
+    NETHERITE_SCRAP:
+      rarity: MYTHIC
+      amount: 1
+      xp: 6000.0
+    ENCHANTED_GOLDEN_APPLE:
+      rarity: MYTHIC
+      amount: 1
+      xp: 8000.0

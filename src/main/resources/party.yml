@@ -1,0 +1,15 @@
+enabled: true
+max-members: 16
+xp-share:
+  default-mode: EQUAL
+  radius: 75.0
+item-share:
+  default-mode: NONE
+  radius: 75.0
+friendly-fire: false
+alliance-friendly-fire: false
+teleport:
+  enabled: true
+  warmup-seconds: 3
+  cooldown-seconds: 120
+  cancel-on-damage: true

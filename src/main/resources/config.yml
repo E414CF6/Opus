@@ -1,0 +1,76 @@
+# Opus Configuration (Modern Paper 26.3 RPG)
+language: ko
+
+storage:
+  # Supported: sqlite, mysql, mariadb
+  method: sqlite
+  auto-save-interval-seconds: 60
+  force-save-on-logout: true
+  sqlite:
+    file: opus.db
+  mysql:
+    host: localhost
+    port: 3306
+    database: minecraft
+    username: root
+    password: ""
+    table-prefix: opus_
+    use-ssl: false
+    pool-size: 10
+
+modules:
+  skills: true
+  hud: true
+  gathering: true
+  combat: true
+  crafting: true
+  party: true
+
+commands:
+  register-standalone-aliases: true
+
+general:
+  # Retro mode uses 0-1000 scale (10x Standard 0-100); Standard is recommended for modern balance
+  retro-mode: false
+  starting-level: 0
+  power-level-cap: 0
+  truncate-skills-on-cap: true
+  levelup-sounds: true
+  verbose-logging: false
+  motd-enabled: true
+  world-blacklist: [ ]
+
+  levelup-broadcasts:
+    enabled: true
+    milestone-interval: 25
+    powerlevel-enabled: true
+    powerlevel-milestone-interval: 100
+    only-same-world: false
+    only-party-members: false
+    send-to-console: true
+
+  chimaera-wing:
+    enabled: true
+    warmup-seconds: 3
+    cooldown-seconds: 60
+    feather-cost: 1
+
+hud:
+  # Default XP display: BOSSBAR, ACTIONBAR, BOTH, OFF
+  default-xp-display: BOSSBAR
+  bossbar-duration-seconds: 4
+  actionbar-notifications: true
+  mob-healthbar:
+    enabled: true
+    # HEARTS, BAR, DISABLED
+    style: HEARTS
+    duration-seconds: 3
+  scoreboard:
+    enabled: true
+    default-display-seconds: 15
+    allow-keep: true
+    power-level-below-name: false
+
+leaderboards:
+  papi-max-tracked-rank: 100
+  cache-refresh-seconds: 60

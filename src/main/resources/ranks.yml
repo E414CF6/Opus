@@ -1,0 +1,267 @@
+# Sub-skill unlock level thresholds for Standard (0-100) and Retro (0-1000) modes.
+# Each entry lists the skill level required for Rank 1, Rank 2, ..., Rank N.
+
+ACROBATICS_DODGE:
+  standard: [ 1 ]
+  retro: [ 1 ]
+ACROBATICS_ROLL:
+  standard: [ 0 ]
+  retro: [ 0 ]
+
+ALCHEMY_CATALYSIS:
+  standard: [ 0 ]
+  retro: [ 0 ]
+ALCHEMY_CONCOCTIONS:
+  standard: [ 0, 10, 20, 35, 50, 75, 90, 100 ]
+  retro: [ 0, 100, 200, 350, 500, 750, 900, 1000 ]
+
+ARCHERY_ARCHERY_LIMIT_BREAK:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+ARCHERY_ARROW_RETRIEVAL:
+  standard: [ 1 ]
+  retro: [ 1 ]
+ARCHERY_SKILL_SHOT:
+  standard: [ 1, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 ]
+  retro: [ 1, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000 ]
+ARCHERY_DAZE:
+  standard: [ 1 ]
+  retro: [ 1 ]
+
+AXES_AXES_LIMIT_BREAK:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+AXES_SKULL_SPLITTER:
+  standard: [ 5 ]
+  retro: [ 50 ]
+AXES_CRITICAL_STRIKES:
+  standard: [ 1 ]
+  retro: [ 1 ]
+AXES_GREATER_IMPACT:
+  standard: [ 25 ]
+  retro: [ 250 ]
+AXES_ARMOR_IMPACT:
+  standard: [ 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95 ]
+  retro: [ 1, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950 ]
+AXES_AXE_MASTERY:
+  standard: [ 1, 25, 50, 75 ]
+  retro: [ 1, 250, 500, 750 ]
+
+CROSSBOWS_CROSSBOWS_LIMIT_BREAK:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+CROSSBOWS_TRICK_SHOT:
+  standard: [ 10, 50, 100 ]
+  retro: [ 100, 500, 1000 ]
+CROSSBOWS_POWERED_SHOT:
+  standard: [ 1, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 ]
+  retro: [ 1, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000 ]
+
+EXCAVATION_GIGA_DRILL_BREAKER:
+  standard: [ 5 ]
+  retro: [ 50 ]
+EXCAVATION_ARCHAEOLOGY:
+  standard: [ 1, 10, 20, 35, 50, 65, 80, 100 ]
+  retro: [ 1, 100, 200, 350, 500, 650, 800, 1000 ]
+
+FISHING_MAGIC_HUNTER:
+  standard: [ 20 ]
+  retro: [ 200 ]
+FISHING_SHAKE:
+  standard: [ 15, 25, 35, 45, 55, 65, 75, 90 ]
+  retro: [ 150, 250, 350, 450, 550, 650, 750, 900 ]
+FISHING_MASTER_ANGLER:
+  standard: [ 10, 20, 30, 40, 55, 70, 85, 100 ]
+  retro: [ 100, 200, 300, 400, 550, 700, 850, 1000 ]
+FISHING_ICE_FISHING:
+  standard: [ 15 ]
+  retro: [ 150 ]
+FISHING_FISHERMANS_DIET:
+  standard: [ 20, 40, 60, 80, 100 ]
+  retro: [ 200, 400, 600, 800, 1000 ]
+FISHING_TREASURE_HUNTER:
+  standard: [ 1, 10, 25, 40, 55, 70, 85, 100 ]
+  retro: [ 1, 100, 250, 400, 550, 700, 850, 1000 ]
+
+HERBALISM_DOUBLE_DROPS:
+  standard: [ 1 ]
+  retro: [ 1 ]
+HERBALISM_VERDANT_BOUNTY:
+  standard: [ 1 ]
+  retro: [ 1 ]
+HERBALISM_GREEN_TERRA:
+  standard: [ 5 ]
+  retro: [ 50 ]
+HERBALISM_GREEN_THUMB:
+  standard: [ 15, 40, 70, 100 ]
+  retro: [ 150, 400, 700, 1000 ]
+HERBALISM_FARMERS_DIET:
+  standard: [ 20, 40, 60, 80, 100 ]
+  retro: [ 200, 400, 600, 800, 1000 ]
+HERBALISM_HYLIAN_LUCK:
+  standard: [ 1 ]
+  retro: [ 1 ]
+HERBALISM_SHROOM_THUMB:
+  standard: [ 1 ]
+  retro: [ 1 ]
+
+MACES_MACES_LIMIT_BREAK:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+MACES_CRUSH:
+  standard: [ 1, 25, 50, 75 ]
+  retro: [ 1, 250, 500, 750 ]
+MACES_CRIPPLE:
+  standard: [ 10, 35, 65, 90 ]
+  retro: [ 100, 350, 650, 900 ]
+
+MINING_DOUBLE_DROPS:
+  standard: [ 1 ]
+  retro: [ 1 ]
+MINING_MOTHER_LODE:
+  standard: [ 1 ]
+  retro: [ 1 ]
+MINING_SUPER_BREAKER:
+  standard: [ 5 ]
+  retro: [ 50 ]
+MINING_BIGGER_BOMBS:
+  standard: [ 25 ]
+  retro: [ 250 ]
+MINING_DEMOLITIONS_EXPERTISE:
+  standard: [ 50 ]
+  retro: [ 500 ]
+MINING_BLAST_MINING:
+  standard: [ 15, 25, 35, 50, 65, 80, 90, 100 ]
+  retro: [ 150, 250, 350, 500, 650, 800, 900, 1000 ]
+
+REPAIR_REPAIR_MASTERY:
+  standard: [ 1 ]
+  retro: [ 1 ]
+REPAIR_SUPER_REPAIR:
+  standard: [ 1 ]
+  retro: [ 1 ]
+REPAIR_ARCANE_FORGING:
+  standard: [ 10, 25, 40, 55, 70, 80, 90, 100 ]
+  retro: [ 100, 250, 400, 550, 700, 800, 900, 1000 ]
+
+SALVAGE_SCRAP_COLLECTOR:
+  standard: [ 10, 20, 35, 50, 65, 75, 90, 100 ]
+  retro: [ 100, 200, 350, 500, 650, 750, 900, 1000 ]
+SALVAGE_ARCANE_SALVAGE:
+  standard: [ 15, 30, 45, 60, 75, 85, 95, 100 ]
+  retro: [ 150, 300, 450, 600, 750, 850, 950, 1000 ]
+
+SMELTING_FUEL_EFFICIENCY:
+  standard: [ 15, 45, 80 ]
+  retro: [ 150, 450, 800 ]
+SMELTING_SECOND_SMELT:
+  standard: [ 1 ]
+  retro: [ 1 ]
+SMELTING_UNDERSTANDING_THE_ART:
+  standard: [ 10, 25, 40, 55, 70, 80, 90, 100 ]
+  retro: [ 100, 250, 400, 550, 700, 800, 900, 1000 ]
+SMELTING_FLUX_MINING:
+  standard: [ 30 ]
+  retro: [ 300 ]
+
+SPEARS_SPEARS_LIMIT_BREAK:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+SPEARS_SPEAR_MASTERY:
+  standard: [ 1, 15, 30, 45, 60, 75, 90, 100 ]
+  retro: [ 1, 150, 300, 450, 600, 750, 900, 1000 ]
+SPEARS_MOMENTUM:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+
+SWORDS_SWORDS_LIMIT_BREAK:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+SWORDS_STAB:
+  standard: [ 1, 50 ]
+  retro: [ 1, 500 ]
+SWORDS_COUNTER_ATTACK:
+  standard: [ 1 ]
+  retro: [ 1 ]
+SWORDS_RUPTURE:
+  standard: [ 10, 35, 65, 90 ]
+  retro: [ 100, 350, 650, 900 ]
+SWORDS_SERRATED_STRIKES:
+  standard: [ 5 ]
+  retro: [ 50 ]
+
+TAMING_BEAST_LORE:
+  standard: [ 1 ]
+  retro: [ 1 ]
+TAMING_CALL_OF_THE_WILD:
+  standard: [ 1 ]
+  retro: [ 1 ]
+TAMING_ENVIRONMENTALLY_AWARE:
+  standard: [ 10 ]
+  retro: [ 100 ]
+TAMING_FAST_FOOD_SERVICE:
+  standard: [ 5 ]
+  retro: [ 50 ]
+TAMING_GORE:
+  standard: [ 1 ]
+  retro: [ 1 ]
+TAMING_HOLY_HOUND:
+  standard: [ 30 ]
+  retro: [ 300 ]
+TAMING_PUMMEL:
+  standard: [ 20 ]
+  retro: [ 200 ]
+TAMING_SHARPENED_CLAWS:
+  standard: [ 50 ]
+  retro: [ 500 ]
+TAMING_SHOCK_PROOF:
+  standard: [ 50 ]
+  retro: [ 500 ]
+TAMING_THICK_FUR:
+  standard: [ 25 ]
+  retro: [ 250 ]
+
+TRIDENTS_TRIDENTS_LIMIT_BREAK:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+TRIDENTS_IMPALE:
+  standard: [ 1, 10, 20, 30, 40, 50, 60, 70, 80, 90 ]
+  retro: [ 1, 100, 200, 300, 400, 500, 600, 700, 800, 900 ]
+
+UNARMED_UNARMED_LIMIT_BREAK:
+  standard: [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 ]
+  retro: [ 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 ]
+UNARMED_BERSERK:
+  standard: [ 5 ]
+  retro: [ 50 ]
+UNARMED_ARROW_DEFLECT:
+  standard: [ 1 ]
+  retro: [ 1 ]
+UNARMED_DISARM:
+  standard: [ 25 ]
+  retro: [ 250 ]
+UNARMED_IRON_GRIP:
+  standard: [ 1 ]
+  retro: [ 1 ]
+UNARMED_STEEL_ARM_STYLE:
+  standard: [ 1, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 ]
+  retro: [ 1, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000 ]
+UNARMED_BLOCK_CRACKER:
+  standard: [ 1 ]
+  retro: [ 1 ]
+
+WOODCUTTING_TREE_FELLER:
+  standard: [ 5 ]
+  retro: [ 50 ]
+WOODCUTTING_HARVEST_LUMBER:
+  standard: [ 1 ]
+  retro: [ 1 ]
+WOODCUTTING_CLEAN_CUTS:
+  standard: [ 1 ]
+  retro: [ 1 ]
+WOODCUTTING_KNOCK_ON_WOOD:
+  standard: [ 10, 50 ]
+  retro: [ 100, 500 ]
+WOODCUTTING_LEAF_BLOWER:
+  standard: [ 10 ]
+  retro: [ 100 ]

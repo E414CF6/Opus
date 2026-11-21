@@ -1,0 +1,71 @@
+# Opus Repair & Salvage Item Definitions
+# Unlisted craftable items infer repair/salvage material and quantity automatically from Bukkit recipes when possible.
+
+repairables:
+  SHIELD:
+    category: WOOD
+    material: OAK_PLANKS
+    min-quantity: 6
+    xp-multiplier: 0.25
+  BOW:
+    category: STRING
+    material: STRING
+    min-quantity: 3
+    xp-multiplier: 0.5
+  CROSSBOW:
+    category: IRON
+    material: IRON_INGOT
+    min-quantity: 1
+    xp-multiplier: 0.5
+  FISHING_ROD:
+    category: STRING
+    material: STRING
+    min-quantity: 2
+    xp-multiplier: 0.5
+  TRIDENT:
+    category: DIAMOND
+    material: PRISMARINE_CRYSTALS
+    min-quantity: 3
+    minimum-level: 50
+    xp-multiplier: 2.0
+  MACE:
+    category: NETHERITE
+    material: BREEZE_ROD
+    min-quantity: 1
+    minimum-level: 60
+    xp-multiplier: 3.0
+  ELYTRA:
+    category: LEATHER
+    material: PHANTOM_MEMBRANE
+    min-quantity: 4
+    minimum-level: 50
+    xp-multiplier: 2.0
+
+salvageables:
+  SHIELD:
+    category: WOOD
+    material: OAK_PLANKS
+    max-quantity: 6
+    xp-multiplier: 0.25
+  BOW:
+    category: STRING
+    material: STRING
+    max-quantity: 3
+    xp-multiplier: 0.5
+  CROSSBOW:
+    category: IRON
+    material: IRON_INGOT
+    max-quantity: 1
+    xp-multiplier: 0.5
+  TRIDENT:
+    category: DIAMOND
+    material: PRISMARINE_CRYSTALS
+    max-quantity: 2
+    minimum-level: 50
+    xp-multiplier: 2.0
+  MACE:
+    category: NETHERITE
+    material: BREEZE_ROD
+    max-quantity: 1
+    minimum-level: 60
+    xp-multiplier: 3.0
