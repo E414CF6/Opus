@@ -331,7 +331,7 @@ class CraftingListener(
         if (salvageEvent.isCancelled) return true
 
         val enchants = item.enchantments.toMap()
-        player.inventory.itemInMainHand = ItemStack(Material.AIR)
+        player.inventory.setItemInMainHand(ItemStack(Material.AIR))
 
         val leftovers = player.inventory.addItem(ItemStack(entry.salvageMaterial, salvageEvent.salvagedAmount))
         leftovers.values.forEach { player.world.dropItemNaturally(player.location, it) }
