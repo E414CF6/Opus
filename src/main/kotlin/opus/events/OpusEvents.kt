@@ -150,3 +150,50 @@ class OpusSalvageEvent(
         fun getHandlerList(): HandlerList = HANDLERS
     }
 }
+
+class OpusHardcoreStatLossEvent(
+    val player: Player,
+    val levelsLost: MutableMap<SkillType, Int>,
+    val xpLost: MutableMap<SkillType, Double>,
+) : Event(), Cancellable {
+    private var cancelled = false
+
+    override fun isCancelled(): Boolean = cancelled
+    override fun setCancelled(cancel: Boolean) {
+        cancelled = cancel
+    }
+
+    override fun getHandlers(): HandlerList = HANDLERS
+
+    companion object {
+        @JvmStatic
+        val HANDLERS = HandlerList()
+
+        @JvmStatic
+        fun getHandlerList(): HandlerList = HANDLERS
+    }
+}
+
+class OpusVampirismEvent(
+    val killer: Player,
+    val victim: Player,
+    val levelsStolen: MutableMap<SkillType, Int>,
+    val xpStolen: MutableMap<SkillType, Double>,
+) : Event(), Cancellable {
+    private var cancelled = false
+
+    override fun isCancelled(): Boolean = cancelled
+    override fun setCancelled(cancel: Boolean) {
+        cancelled = cancel
+    }
+
+    override fun getHandlers(): HandlerList = HANDLERS
+
+    companion object {
+        @JvmStatic
+        val HANDLERS = HandlerList()
+
+        @JvmStatic
+        fun getHandlerList(): HandlerList = HANDLERS
+    }
+}

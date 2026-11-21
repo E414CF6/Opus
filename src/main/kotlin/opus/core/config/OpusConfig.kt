@@ -77,6 +77,27 @@ class OpusConfig(private val plugin: Plugin) {
     var chimaeraFeatherCost: Int = 1
         private set
 
+    var xpEventAnnounceOnJoin: Boolean = true
+        private set
+
+    @Volatile
+    var hardcoreStatLossEnabled: Boolean = false
+
+    @Volatile
+    var hardcoreStatLossPercentage: Double = 5.0
+    var hardcoreStatLossThreshold: Int = 10
+        private set
+
+    @Volatile
+    var hardcoreVampirismEnabled: Boolean = false
+
+    @Volatile
+    var hardcoreVampirismPercentage: Double = 5.0
+    var hardcoreVampirismThreshold: Int = 10
+        private set
+    var hardcoreExcludedSkills: Set<String> = emptySet()
+        private set
+
     var defaultXpDisplay: String = "BOSSBAR"
         private set
     var bossBarDurationSeconds: Long = 4L
@@ -94,6 +115,8 @@ class OpusConfig(private val plugin: Plugin) {
     var scoreboardDefaultSeconds: Int = 15
         private set
     var scoreboardAllowKeep: Boolean = true
+        private set
+    var powerLevelBelowName: Boolean = false
         private set
 
     var papiMaxTrackedRank: Int = 100
@@ -147,6 +170,15 @@ class OpusConfig(private val plugin: Plugin) {
         chimaeraCooldownSeconds = y.getLong("general.chimaera-wing.cooldown-seconds", 60L).coerceAtLeast(0L)
         chimaeraFeatherCost = y.getInt("general.chimaera-wing.feather-cost", 1).coerceAtLeast(0)
 
+        xpEventAnnounceOnJoin = y.getBoolean("general.xprate-event-announce-on-join", true)
+        hardcoreStatLossEnabled = y.getBoolean("general.hardcore.stat-loss-enabled", false)
+        hardcoreStatLossPercentage = y.getDouble("general.hardcore.stat-loss-percentage", 5.0).coerceIn(0.0, 100.0)
+        hardcoreStatLossThreshold = y.getInt("general.hardcore.stat-loss-level-threshold", 10).coerceAtLeast(0)
+        hardcoreVampirismEnabled = y.getBoolean("general.hardcore.vampirism-enabled", false)
+        hardcoreVampirismPercentage = y.getDouble("general.hardcore.vampirism-percentage", 5.0).coerceIn(0.0, 100.0)
+        hardcoreVampirismThreshold = y.getInt("general.hardcore.vampirism-level-threshold", 10).coerceAtLeast(0)
+        hardcoreExcludedSkills = y.getStringList("general.hardcore.excluded-skills").map { it.lowercase() }.toSet()
+
         defaultXpDisplay = (y.getString("hud.default-xp-display", "BOSSBAR") ?: "BOSSBAR").uppercase()
         bossBarDurationSeconds = y.getLong("hud.bossbar-duration-seconds", 4L).coerceAtLeast(1L)
         actionBarNotifications = y.getBoolean("hud.actionbar-notifications", true)
@@ -156,6 +188,7 @@ class OpusConfig(private val plugin: Plugin) {
         scoreboardEnabled = y.getBoolean("hud.scoreboard.enabled", true)
         scoreboardDefaultSeconds = y.getInt("hud.scoreboard.default-display-seconds", 15).coerceAtLeast(3)
         scoreboardAllowKeep = y.getBoolean("hud.scoreboard.allow-keep", true)
+        powerLevelBelowName = y.getBoolean("hud.scoreboard.power-level-below-name", false)
 
         papiMaxTrackedRank = y.getInt("leaderboards.papi-max-tracked-rank", 100).coerceIn(10, 1000)
         leaderboardCacheRefreshSeconds = y.getLong("leaderboards.cache-refresh-seconds", 60L).coerceAtLeast(30L)

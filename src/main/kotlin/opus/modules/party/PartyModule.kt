@@ -30,12 +30,28 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
 
+enum class PartyFeature(val configKey: String) {
+    CHAT("chat"),
+    TELEPORT("teleport"),
+    ALLIANCE("alliance"),
+    ITEM_SHARE("item-share"),
+    XP_SHARE("xp-share"),
+}
+
 class PartyConfig(context: OpusContext) {
     private val file = YamlConfigFile(context.plugin, "party.yml")
 
     var enabled: Boolean = true
         private set
     var maxMembers: Int = 16
+        private set
+    var levelingEnabled: Boolean = true
+        private set
+    var baseXp: Double = 1000.0
+        private set
+    var xpPerLevel: Double = 500.0
+        private set
+    var featureUnlockLevels: Map<PartyFeature, Int> = PartyFeature.entries.associateWith { 0 }
         private set
     var defaultXpShare: String = "EQUAL"
         private set
@@ -51,9 +67,15 @@ class PartyConfig(context: OpusContext) {
         private set
     var teleportEnabled: Boolean = true
         private set
+    var teleportRequireAccept: Boolean = true
+        private set
+    var teleportRequestTimeoutSec: Long = 60L
+        private set
     var teleportWarmupSec: Long = 3L
         private set
     var teleportCooldownSec: Long = 120L
+        private set
+    var teleportCancelOnDamage: Boolean = true
         private set
 
     init {
@@ -65,6 +87,12 @@ class PartyConfig(context: OpusContext) {
         val y = file.yaml
         enabled = y.getBoolean("enabled", true)
         maxMembers = y.getInt("max-members", 16).coerceAtLeast(2)
+        levelingEnabled = y.getBoolean("leveling.enabled", true)
+        baseXp = y.getDouble("leveling.base-xp", 1000.0).coerceAtLeast(1.0)
+        xpPerLevel = y.getDouble("leveling.xp-per-level", 500.0).coerceAtLeast(0.0)
+        featureUnlockLevels = PartyFeature.entries.associateWith { feature ->
+            y.getInt("feature-unlock-levels.${feature.configKey}", 0).coerceAtLeast(0)
+        }
         defaultXpShare = (y.getString("xp-share.default-mode", "EQUAL") ?: "EQUAL").uppercase()
         xpShareRadius = y.getDouble("xp-share.radius", 75.0).coerceAtLeast(1.0)
         defaultItemShare = (y.getString("item-share.default-mode", "NONE") ?: "NONE").uppercase()
@@ -72,9 +100,14 @@ class PartyConfig(context: OpusContext) {
         friendlyFire = y.getBoolean("friendly-fire", false)
         allianceFriendlyFire = y.getBoolean("alliance-friendly-fire", false)
         teleportEnabled = y.getBoolean("teleport.enabled", true)
-        teleportWarmupSec = y.getLong("teleport.warmup-seconds", 3L).coerceAtLeast(1L)
+        teleportRequireAccept = y.getBoolean("teleport.require-accept", true)
+        teleportRequestTimeoutSec = y.getLong("teleport.request-timeout-seconds", 60L).coerceAtLeast(5L)
+        teleportWarmupSec = y.getLong("teleport.warmup-seconds", 3L).coerceAtLeast(0L)
         teleportCooldownSec = y.getLong("teleport.cooldown-seconds", 120L).coerceAtLeast(0L)
+        teleportCancelOnDamage = y.getBoolean("teleport.cancel-on-damage", true)
     }
+
+    fun unlockLevel(feature: PartyFeature): Int = featureUnlockLevels[feature] ?: 0
 }
 
 class Party(
@@ -87,6 +120,8 @@ class Party(
     @Volatile var itemShareMode: String = "NONE",
     @Volatile var allyPartyId: UUID? = null,
     @Volatile var motd: String? = null,
+    @Volatile var level: Int = 0,
+    @Volatile var xp: Double = 0.0,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     val members = ConcurrentHashMap<UUID, PartyMemberRecord>()
@@ -98,6 +133,28 @@ class Party(
 
     fun onlinePlayers(): List<Player> = members.keys.mapNotNull { Bukkit.getPlayer(it) }
 
+    fun xpNeeded(baseXp: Double, xpPerLevel: Double): Double =
+        (baseXp + level.toDouble() * xpPerLevel).coerceAtLeast(1.0)
+
+    /**
+     * Adds party XP and processes any resulting level-ups.
+     * Returns true if the party leveled up at least once.
+     */
+    @Synchronized
+    fun addXp(amount: Double, baseXp: Double, xpPerLevel: Double): Boolean {
+        if (amount <= 0.0) return false
+        xp += amount
+        var leveled = false
+        while (true) {
+            val needed = xpNeeded(baseXp, xpPerLevel)
+            if (xp < needed) break
+            xp -= needed
+            level++
+            leveled = true
+        }
+        return leveled
+    }
+
     fun toRecord(): PartyRecord = PartyRecord(
         id = id,
         name = name,
@@ -108,6 +165,8 @@ class Party(
         itemShareMode = itemShareMode,
         allyPartyId = allyPartyId,
         motd = motd,
+        level = level,
+        xp = xp,
         createdAt = createdAt,
     )
 }
@@ -124,7 +183,11 @@ class PartyService(
     private val partyByName = ConcurrentHashMap<String, UUID>()
     private val partyByPlayer = ConcurrentHashMap<UUID, UUID>()
     private val pendingInvites = ConcurrentHashMap<UUID, UUID>()
+    private val pendingAllyInvites = ConcurrentHashMap<UUID, UUID>() // targetPartyId -> senderPartyId
     private val ptpCooldowns = ConcurrentHashMap<UUID, Long>()
+    private val ptpRequests = ConcurrentHashMap<UUID, Pair<UUID, Long>>() // targetUuid -> (requesterUuid, expiresAt)
+    private val ptpDisabled = ConcurrentHashMap.newKeySet<UUID>()
+    private val ptpAcceptAny = ConcurrentHashMap.newKeySet<UUID>()
     private val itemPickupGuard = ConcurrentHashMap.newKeySet<UUID>()
 
     fun loadBlocking() {
@@ -144,6 +207,8 @@ class PartyService(
                     itemShareMode = rec.itemShareMode,
                     allyPartyId = rec.allyPartyId,
                     motd = rec.motd,
+                    level = rec.level,
+                    xp = rec.xp,
                     createdAt = rec.createdAt,
                 )
                 partiesById[p.id] = p
@@ -153,6 +218,14 @@ class PartyService(
                 val p = partiesById[m.partyId] ?: continue
                 p.members[m.playerUuid] = m
                 partyByPlayer[m.playerUuid] = p.id
+            }
+        }
+    }
+
+    fun saveAllBlocking() {
+        runBlocking {
+            for (party in partiesById.values) {
+                context.partyRepository.upsertParty(party.toRecord())
             }
         }
     }
@@ -240,6 +313,8 @@ class PartyService(
                 context.scheduler.asyncScope.launch { context.partyRepository.upsertParty(ally.toRecord()) }
             }
         }
+        pendingAllyInvites.remove(party.id)
+        pendingAllyInvites.entries.removeIf { it.value == party.id }
         for (online in party.onlinePlayers()) {
             context.locale.send(online, "party.disbanded", "party" to party.name)
         }
@@ -250,6 +325,83 @@ class PartyService(
         context.scheduler.asyncScope.launch {
             context.partyRepository.deleteParty(party.id)
         }
+    }
+
+    fun renameParty(party: Party, newName: String): Boolean {
+        val key = newName.lowercase()
+        val existingId = partyByName[key]
+        if (existingId != null && existingId != party.id) return false
+        partyByName.remove(party.name.lowercase())
+        party.name = newName
+        partyByName[key] = party.id
+        saveParty(party)
+        return true
+    }
+
+    fun hasUnlocked(party: Party, feature: PartyFeature): Boolean {
+        if (!partyConfig.levelingEnabled) return true
+        return party.level >= partyConfig.unlockLevel(feature)
+    }
+
+    fun requireUnlocked(player: Player, party: Party, feature: PartyFeature): Boolean {
+        if (hasUnlocked(party, feature)) return true
+        context.locale.send(
+            player,
+            "party.feature-locked",
+            "level" to partyConfig.unlockLevel(feature),
+            "feature" to feature.configKey,
+        )
+        return false
+    }
+
+    fun sendAllyInvite(sender: Party, target: Party) {
+        pendingAllyInvites[target.id] = sender.id
+        val leader = Bukkit.getPlayer(target.leaderUuid)
+        if (leader != null) {
+            context.locale.send(leader, "party.ally-invite-received", "party" to sender.name)
+        } else {
+            for (online in target.onlinePlayers()) {
+                context.locale.send(online, "party.ally-invite-received", "party" to sender.name)
+            }
+        }
+    }
+
+    fun acceptAllyInvite(target: Party): Party? {
+        val senderId = pendingAllyInvites.remove(target.id) ?: return null
+        val sender = partiesById[senderId] ?: return null
+        if (sender.id == target.id) return null
+        // Dissolve any prior alliances cleanly before forming the new one
+        if (target.allyPartyId != null) disbandAlliance(target)
+        if (sender.allyPartyId != null) disbandAlliance(sender)
+        target.allyPartyId = sender.id
+        sender.allyPartyId = target.id
+        saveParty(target)
+        saveParty(sender)
+        for (online in target.onlinePlayers()) {
+            context.locale.send(online, "party.ally-formed", "party" to sender.name)
+        }
+        for (online in sender.onlinePlayers()) {
+            context.locale.send(online, "party.ally-formed", "party" to target.name)
+        }
+        return sender
+    }
+
+    fun disbandAlliance(party: Party): Boolean {
+        val allyId = party.allyPartyId ?: return false
+        party.allyPartyId = null
+        saveParty(party)
+        val ally = partiesById[allyId]
+        if (ally != null && ally.allyPartyId == party.id) {
+            ally.allyPartyId = null
+            saveParty(ally)
+            for (online in ally.onlinePlayers()) {
+                context.locale.send(online, "party.ally-disbanded")
+            }
+        }
+        for (online in party.onlinePlayers()) {
+            context.locale.send(online, "party.ally-disbanded")
+        }
+        return true
     }
 
     fun kickMember(party: Party, targetUuid: UUID) {
@@ -294,7 +446,19 @@ class PartyService(
     ) {
         if (!partyConfig.enabled) return
         val party = getPlayerParty(source.uniqueId) ?: return
+
+        if (partyConfig.levelingEnabled && rawXp > 0.0) {
+            val leveledUp = party.addXp(rawXp, partyConfig.baseXp, partyConfig.xpPerLevel)
+            if (leveledUp) {
+                saveParty(party)
+                for (member in party.onlinePlayers()) {
+                    context.locale.send(member, "party.level-up", "party" to party.name, "level" to party.level)
+                }
+            }
+        }
+
         if (party.expShareMode != "EQUAL") return
+        if (!hasUnlocked(party, PartyFeature.XP_SHARE)) return
 
         val radiusSq = partyConfig.xpShareRadius * partyConfig.xpShareRadius
         val nearby = party.onlinePlayers().filter {
@@ -316,6 +480,7 @@ class PartyService(
         try {
             val party = getPlayerParty(player.uniqueId) ?: return
             if (party.itemShareMode == "NONE") return
+            if (!hasUnlocked(party, PartyFeature.ITEM_SHARE)) return
 
             val radiusSq = partyConfig.itemShareRadius * partyConfig.itemShareRadius
             val candidates = party.onlinePlayers().filter {
@@ -347,6 +512,10 @@ class PartyService(
             ChatChannelMode.PARTY -> {
                 val party = getPlayerParty(player.uniqueId)
                 if (party == null) {
+                    state.chatMode = ChatChannelMode.PUBLIC
+                    return
+                }
+                if (!requireUnlocked(player, party, PartyFeature.CHAT)) {
                     state.chatMode = ChatChannelMode.PUBLIC
                     return
                 }
@@ -399,6 +568,27 @@ class PartyService(
         Bukkit.getConsoleSender().sendMessage(comp)
     }
 
+    fun togglePtp(player: Player): Boolean {
+        val enabled = if (ptpDisabled.contains(player.uniqueId)) {
+            ptpDisabled.remove(player.uniqueId)
+            true
+        } else {
+            ptpDisabled.add(player.uniqueId)
+            false
+        }
+        return enabled
+    }
+
+    fun togglePtpAcceptAny(player: Player): Boolean {
+        return if (ptpAcceptAny.contains(player.uniqueId)) {
+            ptpAcceptAny.remove(player.uniqueId)
+            false
+        } else {
+            ptpAcceptAny.add(player.uniqueId)
+            true
+        }
+    }
+
     fun tryPartyTeleport(player: Player, target: Player) {
         if (!partyConfig.teleportEnabled) return
         val party = getPlayerParty(player.uniqueId)
@@ -406,6 +596,12 @@ class PartyService(
             context.locale.send(player, "party.ptp-not-same-party", "player" to target.name)
             return
         }
+        if (!requireUnlocked(player, party, PartyFeature.TELEPORT)) return
+        if (target.uniqueId in ptpDisabled && !player.hasPermission("opus.bypass.partyteleport")) {
+            context.locale.send(player, "party.ptp-disabled-target", "player" to target.name)
+            return
+        }
+
         val now = System.currentTimeMillis()
         val cdUntil = ptpCooldowns[player.uniqueId] ?: 0L
         if (now < cdUntil && !player.hasPermission("opus.bypass.partyteleport")) {
@@ -416,6 +612,44 @@ class PartyService(
             )
             return
         }
+
+        val requiresAccept = partyConfig.teleportRequireAccept &&
+                target.uniqueId !in ptpAcceptAny &&
+                !player.hasPermission("opus.bypass.partyteleport")
+
+        if (requiresAccept) {
+            val expiresAt = now + partyConfig.teleportRequestTimeoutSec * 1000L
+            ptpRequests[target.uniqueId] = player.uniqueId to expiresAt
+            context.locale.send(player, "party.ptp-request-sent", "player" to target.name)
+            context.locale.send(target, "party.ptp-request-received", "player" to player.name)
+            return
+        }
+
+        executePartyTeleport(player, target)
+    }
+
+    fun acceptPtpRequest(target: Player) {
+        if (!partyConfig.teleportEnabled) return
+        val req = ptpRequests.remove(target.uniqueId)
+        val now = System.currentTimeMillis()
+        if (req == null || now > req.second) {
+            context.locale.send(target, "party.ptp-no-request")
+            return
+        }
+        val requester = Bukkit.getPlayer(req.first)
+        if (requester == null || !requester.isOnline) {
+            context.locale.send(target, "party.ptp-no-request")
+            return
+        }
+        val party = getPlayerParty(target.uniqueId)
+        if (party == null || !party.members.containsKey(requester.uniqueId)) {
+            context.locale.send(target, "party.ptp-no-request")
+            return
+        }
+        executePartyTeleport(requester, target)
+    }
+
+    private fun executePartyTeleport(player: Player, target: Player) {
         val warmup = if (player.hasPermission("opus.bypass.partyteleport")) 0L else partyConfig.teleportWarmupSec
         val startLoc = player.location.clone()
         val startHp = player.health
@@ -426,7 +660,7 @@ class PartyService(
             if (!player.isOnline || !target.isOnline) return@runForEntityDelayed
             if (warmup > 0L && (player.location.world != startLoc.world ||
                         player.location.distanceSquared(startLoc) > 1.0 ||
-                        player.health < startHp)
+                        (partyConfig.teleportCancelOnDamage && player.health < startHp))
             ) {
                 context.locale.send(player, "party.ptp-cancelled")
                 return@runForEntityDelayed
@@ -446,17 +680,26 @@ class PartyService(
         menu.fillBorder(MenuItems.item(Material.GRAY_STAINED_GLASS_PANE, " "))
 
         val leaderName = Bukkit.getOfflinePlayer(party.leaderUuid).name ?: party.leaderUuid.toString().take(8)
+        val lore = mutableListOf(
+            "<gray>Level:</gray> <yellow>Lv.${party.level}</yellow> <dark_gray>(${party.xp.toInt()}/${
+                party.xpNeeded(partyConfig.baseXp, partyConfig.xpPerLevel).toInt()
+            })</dark_gray>",
+            "<gray>Leader:</gray> <gold>$leaderName</gold>",
+            "<gray>XP Share:</gray> <aqua>${party.expShareMode}</aqua>",
+            "<gray>Item Share:</gray> <aqua>${party.itemShareMode}</aqua>",
+            "<gray>Members:</gray> <white>${party.members.size}/${partyConfig.maxMembers}</white>",
+        )
+        party.allyPartyId?.let { allyId ->
+            partiesById[allyId]?.let { ally ->
+                lore += "<gray>Alliance:</gray> <light_purple>${ally.name}</light_purple>"
+            }
+        }
         menu.set(
             4,
             MenuItems.item(
                 Material.BEACON,
                 "<aqua><bold>${party.name}</bold></aqua>",
-                listOf(
-                    "<gray>Leader:</gray> <gold>$leaderName</gold>",
-                    "<gray>XP Share:</gray> <aqua>${party.expShareMode}</aqua>",
-                    "<gray>Item Share:</gray> <aqua>${party.itemShareMode}</aqua>",
-                    "<gray>Members:</gray> <white>${party.members.size}/${partyConfig.maxMembers}</white>",
-                ),
+                lore,
             ),
         )
 
@@ -493,6 +736,10 @@ class PartyModule(private val context: OpusContext) : OpusModule {
         context.registerService(PartyRelationHook::class.java, service)
     }
 
+    override fun onDisable() {
+        service.saveAllBlocking()
+    }
+
     override fun onReload() {
         partyConfig.reload()
     }
@@ -527,6 +774,7 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                                 "kick",
                                 "leave",
                                 "leader",
+                                "rename",
                                 "disband",
                                 "lock",
                                 "unlock",
@@ -540,6 +788,9 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                                 "gui"
                             )
                                 .filter { it.startsWith(parts.lastOrNull() ?: "", ignoreCase = true) }
+                        } else if (parts.size == 2 && parts[0].equals("ally", ignoreCase = true)) {
+                            listOf("invite", "accept", "disband")
+                                .filter { it.startsWith(parts[1], ignoreCase = true) }
                         } else emptyList()
                     },
                 )
@@ -558,6 +809,9 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     val party = service.getPlayerParty(player.uniqueId)
                     if (party == null) {
                         context.locale.send(player, "party.not-in-party")
+                        return@simpleArgsCommand Command.SINGLE_SUCCESS
+                    }
+                    if (!service.requireUnlocked(player, party, PartyFeature.CHAT)) {
                         return@simpleArgsCommand Command.SINGLE_SUCCESS
                     }
                     if (args.isNotEmpty()) {
@@ -636,20 +890,45 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     executor = { ctx, args ->
                         val player = CommandHelper.requirePlayer(context, ctx.source.sender)
                             ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        val targetName = args.firstOrNull() ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        val target = Bukkit.getPlayerExact(targetName)
-                        if (target == null) {
-                            context.locale.send(player, "general.player-not-found", "player" to targetName)
-                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        val arg = args.firstOrNull() ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        when (arg.lowercase()) {
+                            "accept" -> service.acceptPtpRequest(player)
+                            "toggle" -> {
+                                val enabled = service.togglePtp(player)
+                                context.locale.send(
+                                    player,
+                                    "party.ptp-toggle-changed",
+                                    "state" to if (enabled) "ON" else "OFF",
+                                )
+                            }
+
+                            "acceptany" -> {
+                                val on = service.togglePtpAcceptAny(player)
+                                context.locale.send(
+                                    player,
+                                    "party.ptp-acceptany-changed",
+                                    "state" to if (on) "ON" else "OFF",
+                                )
+                            }
+
+                            else -> {
+                                val target = Bukkit.getPlayerExact(arg)
+                                if (target == null) {
+                                    context.locale.send(player, "general.player-not-found", "player" to arg)
+                                    return@simpleArgsCommand Command.SINGLE_SUCCESS
+                                }
+                                service.tryPartyTeleport(player, target)
+                            }
                         }
-                        service.tryPartyTeleport(player, target)
                         Command.SINGLE_SUCCESS
                     },
                     tabSuggester = { sender, parts ->
-                        if (parts.size <= 1) CommandHelper.suggestOnlinePlayers(
-                            sender,
-                            parts.lastOrNull() ?: ""
-                        ) else emptyList()
+                        if (parts.size <= 1) {
+                            val prefix = parts.lastOrNull() ?: ""
+                            val specials = listOf("accept", "toggle", "acceptany")
+                                .filter { it.startsWith(prefix, ignoreCase = true) }
+                            specials + CommandHelper.suggestOnlinePlayers(sender, prefix)
+                        } else emptyList()
                     },
                 )
             },
@@ -834,6 +1113,25 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                 context.locale.send(player, "party.motd-changed", "motd" to (current.motd ?: "-"))
             }
 
+            "rename" -> {
+                if (current == null) {
+                    context.locale.send(player, "party.not-in-party")
+                    return
+                }
+                if (current.leaderUuid != player.uniqueId) {
+                    context.locale.send(player, "party.no-leader-permission")
+                    return
+                }
+                val newName = args.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return
+                if (!service.renameParty(current, newName)) {
+                    context.locale.send(player, "party.already-exists", "party" to newName)
+                    return
+                }
+                for (member in current.onlinePlayers()) {
+                    context.locale.send(member, "party.renamed", "party" to newName)
+                }
+            }
+
             "xpshare" -> {
                 if (current == null) {
                     context.locale.send(player, "party.not-in-party")
@@ -843,6 +1141,7 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     context.locale.send(player, "party.no-leader-permission")
                     return
                 }
+                if (!service.requireUnlocked(player, current, PartyFeature.XP_SHARE)) return
                 val mode = (args.getOrNull(1) ?: "EQUAL").uppercase()
                 if (mode != "NONE" && mode != "EQUAL") return
                 current.expShareMode = mode
@@ -859,6 +1158,7 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     context.locale.send(player, "party.no-leader-permission")
                     return
                 }
+                if (!service.requireUnlocked(player, current, PartyFeature.ITEM_SHARE)) return
                 val mode = (args.getOrNull(1) ?: "NONE").uppercase()
                 if (mode !in setOf("NONE", "EQUAL", "RANDOM")) return
                 current.itemShareMode = mode
@@ -875,17 +1175,41 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     context.locale.send(player, "party.no-leader-permission")
                     return
                 }
-                val targetName = args.getOrNull(1) ?: return
-                val other = service.findPartyByName(targetName)
-                if (other == null || other.id == current.id) {
-                    context.locale.send(player, "party.not-found", "party" to targetName)
-                    return
+                if (!service.requireUnlocked(player, current, PartyFeature.ALLIANCE)) return
+                val action = args.getOrNull(1)?.lowercase() ?: return
+                when (action) {
+                    "accept" -> {
+                        if (service.acceptAllyInvite(current) == null) {
+                            context.locale.send(player, "party.ally-no-invite")
+                        }
+                    }
+
+                    "disband" -> {
+                        service.disbandAlliance(current)
+                    }
+
+                    "invite" -> {
+                        val targetName = args.getOrNull(2) ?: return
+                        val other = service.findPartyByName(targetName)
+                        if (other == null || other.id == current.id) {
+                            context.locale.send(player, "party.not-found", "party" to targetName)
+                            return
+                        }
+                        service.sendAllyInvite(current, other)
+                        context.locale.send(player, "party.ally-invited", "party" to other.name)
+                    }
+
+                    else -> {
+                        // Shorthand `/party ally <partyName>` sends an alliance invite
+                        val other = service.findPartyByName(action)
+                        if (other == null || other.id == current.id) {
+                            context.locale.send(player, "party.not-found", "party" to action)
+                            return
+                        }
+                        service.sendAllyInvite(current, other)
+                        context.locale.send(player, "party.ally-invited", "party" to other.name)
+                    }
                 }
-                current.allyPartyId = other.id
-                other.allyPartyId = current.id
-                service.saveParty(current)
-                service.saveParty(other)
-                context.locale.send(player, "party.ally-formed", "party" to other.name)
             }
 
             "disbandally" -> {
@@ -897,16 +1221,7 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     context.locale.send(player, "party.no-leader-permission")
                     return
                 }
-                val allyId = current.allyPartyId ?: return
-                current.allyPartyId = null
-                service.saveParty(current)
-                service.findPartyById(allyId)?.let { ally ->
-                    if (ally.allyPartyId == current.id) {
-                        ally.allyPartyId = null
-                        service.saveParty(ally)
-                    }
-                }
-                context.locale.send(player, "party.ally-disbanded")
+                service.disbandAlliance(current)
             }
 
             "gui" -> {
@@ -926,7 +1241,12 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                 val memberNames = current.members.keys.joinToString(", ") { uuid ->
                     Bukkit.getOfflinePlayer(uuid).name ?: uuid.toString().take(8)
                 }
-                context.locale.sendRaw(player, "party.info-header", "party" to current.name)
+                context.locale.sendRaw(
+                    player,
+                    "party.info-header",
+                    "party" to current.name,
+                    "level" to current.level,
+                )
                 context.locale.sendRaw(
                     player,
                     "party.info-meta",
@@ -936,6 +1256,11 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     "count" to current.members.size,
                     "max" to partyConfig.maxMembers,
                 )
+                current.allyPartyId?.let { allyId ->
+                    service.findPartyById(allyId)?.let { ally ->
+                        context.locale.sendRaw(player, "party.info-ally", "ally" to ally.name)
+                    }
+                }
                 current.motd?.let { context.locale.sendRaw(player, "party.info-motd", "motd" to it) }
                 context.locale.sendRaw(player, "party.info-members", "members" to memberNames)
             }

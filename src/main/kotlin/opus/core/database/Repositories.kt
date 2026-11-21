@@ -39,6 +39,8 @@ data class PartyRecord(
     val itemShareMode: String = "NONE",
     val allyPartyId: UUID? = null,
     val motd: String? = null,
+    val level: Int = 0,
+    val xp: Double = 0.0,
     val createdAt: Long = System.currentTimeMillis(),
 )
 
@@ -403,6 +405,8 @@ class PartyRepository(private val db: DatabaseManager) {
                                 itemShareMode = rs.getString("item_share_mode") ?: "NONE",
                                 allyPartyId = rs.getString("ally_party_id")?.let { UUID.fromString(it) },
                                 motd = rs.getString("motd"),
+                                level = rs.getInt("level"),
+                                xp = rs.getDouble("xp"),
                                 createdAt = rs.getLong("created_at"),
                             )
                         )
@@ -432,8 +436,8 @@ class PartyRepository(private val db: DatabaseManager) {
     suspend fun upsertParty(party: PartyRecord) {
         val sql = when (db.dialect) {
             DatabaseDialect.SQLITE -> """
-                INSERT INTO `$partiesTable` (`id`, `name`, `leader_uuid`, `password`, `locked`, `exp_share_mode`, `item_share_mode`, `ally_party_id`, `motd`, `created_at`)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO `$partiesTable` (`id`, `name`, `leader_uuid`, `password`, `locked`, `exp_share_mode`, `item_share_mode`, `ally_party_id`, `motd`, `level`, `xp`, `created_at`)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(`id`) DO UPDATE SET
                     `name` = excluded.`name`,
                     `leader_uuid` = excluded.`leader_uuid`,
@@ -442,12 +446,14 @@ class PartyRepository(private val db: DatabaseManager) {
                     `exp_share_mode` = excluded.`exp_share_mode`,
                     `item_share_mode` = excluded.`item_share_mode`,
                     `ally_party_id` = excluded.`ally_party_id`,
-                    `motd` = excluded.`motd`;
+                    `motd` = excluded.`motd`,
+                    `level` = excluded.`level`,
+                    `xp` = excluded.`xp`;
             """.trimIndent()
 
             DatabaseDialect.MYSQL, DatabaseDialect.MARIADB -> """
-                INSERT INTO `$partiesTable` (`id`, `name`, `leader_uuid`, `password`, `locked`, `exp_share_mode`, `item_share_mode`, `ally_party_id`, `motd`, `created_at`)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO `$partiesTable` (`id`, `name`, `leader_uuid`, `password`, `locked`, `exp_share_mode`, `item_share_mode`, `ally_party_id`, `motd`, `level`, `xp`, `created_at`)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     `name` = VALUES(`name`),
                     `leader_uuid` = VALUES(`leader_uuid`),
@@ -456,7 +462,9 @@ class PartyRepository(private val db: DatabaseManager) {
                     `exp_share_mode` = VALUES(`exp_share_mode`),
                     `item_share_mode` = VALUES(`item_share_mode`),
                     `ally_party_id` = VALUES(`ally_party_id`),
-                    `motd` = VALUES(`motd`);
+                    `motd` = VALUES(`motd`),
+                    `level` = VALUES(`level`),
+                    `xp` = VALUES(`xp`);
             """.trimIndent()
         }
         db.query { conn ->
@@ -470,7 +478,9 @@ class PartyRepository(private val db: DatabaseManager) {
                 ps.setString(7, party.itemShareMode)
                 ps.setString(8, party.allyPartyId?.toString())
                 ps.setString(9, party.motd)
-                ps.setLong(10, party.createdAt)
+                ps.setInt(10, party.level)
+                ps.setDouble(11, party.xp)
+                ps.setLong(12, party.createdAt)
                 ps.executeUpdate()
             }
         }

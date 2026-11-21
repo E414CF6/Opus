@@ -21,9 +21,11 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.scoreboard.Criteria
 import org.bukkit.scoreboard.DisplaySlot
+import org.bukkit.scoreboard.Scoreboard
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.ceil
@@ -79,6 +81,64 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
         if (state.scoreboardMode == ScoreboardMode.KEEP) {
             showStatsBoard(player, state, persistent = true)
         }
+        updatePowerLevelTag(player, state)
+    }
+
+    fun updatePowerLevelTag(player: Player, state: OpusPlayerState) {
+        if (!context.config.powerLevelBelowName) return
+        val power = state.powerLevel()
+        val playerName = player.name
+        context.scheduler.runGlobal {
+            val main = Bukkit.getScoreboardManager().mainScoreboard
+            val obj = ensurePowerObjective(main)
+            obj.getScore(playerName).score = power
+            for (viewer in Bukkit.getOnlinePlayers()) {
+                val viewerBoard = viewer.scoreboard
+                if (viewerBoard !== main) {
+                    val viewerObj = viewerBoard.getObjective(POWER_OBJECTIVE) ?: continue
+                    viewerObj.getScore(playerName).score = power
+                }
+            }
+        }
+    }
+
+    fun syncAllPowerLevelTags() {
+        context.scheduler.runGlobal {
+            val main = Bukkit.getScoreboardManager().mainScoreboard
+            if (!context.config.powerLevelBelowName) {
+                main.getObjective(POWER_OBJECTIVE)?.unregister()
+                for (viewer in Bukkit.getOnlinePlayers()) {
+                    val b = viewer.scoreboard
+                    if (b !== main) b.getObjective(POWER_OBJECTIVE)?.unregister()
+                }
+                return@runGlobal
+            }
+            val obj = ensurePowerObjective(main)
+            for (online in Bukkit.getOnlinePlayers()) {
+                val power = context.players.getCached(online).powerLevel()
+                obj.getScore(online.name).score = power
+            }
+        }
+    }
+
+    private fun ensurePowerObjective(board: Scoreboard) =
+        board.getObjective(POWER_OBJECTIVE)
+            ?: board.registerNewObjective(
+                POWER_OBJECTIVE,
+                Criteria.DUMMY,
+                TextFormatter.format("<gold>Power</gold>"),
+            ).also { it.displaySlot = DisplaySlot.BELOW_NAME }
+
+    private fun mirrorPowerObjective(board: Scoreboard) {
+        if (!context.config.powerLevelBelowName) return
+        val obj = ensurePowerObjective(board)
+        for (online in Bukkit.getOnlinePlayers()) {
+            obj.getScore(online.name).score = context.players.getCached(online).powerLevel()
+        }
+    }
+
+    companion object {
+        private const val POWER_OBJECTIVE = "opus_power"
     }
 
     override fun onActionBarNotice(player: Player, messageKey: String, vararg placeholders: Pair<String, Any?>) {
@@ -200,6 +260,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
                 team.prefix(TextFormatter.format(line))
                 obj.getScore(entry).score = unique.size - idx
             }
+            mirrorPowerObjective(board)
             player.scoreboard = board
             boardHideTasks.remove(player.uniqueId)?.cancel()
             if (!persistent) {
@@ -245,6 +306,17 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
     }
 
     @EventHandler
+    fun onJoin(event: PlayerJoinEvent) {
+        if (!context.config.powerLevelBelowName) return
+        val player = event.player
+        context.scheduler.runForEntityDelayed(player, 20L) {
+            if (player.isOnline) {
+                updatePowerLevelTag(player, context.players.getCached(player))
+            }
+        }
+    }
+
+    @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
         val uuid = event.player.uniqueId
         bossBars.remove(uuid)?.let {
@@ -274,6 +346,11 @@ class HudModule(private val context: OpusContext) : OpusModule {
     override fun onEnable() {
         context.registerService(service)
         context.registerService(HudFeedbackHook::class.java, service)
+        service.syncAllPowerLevelTags()
+    }
+
+    override fun onReload() {
+        service.syncAllPowerLevelTags()
     }
 
     override fun onDisable() {

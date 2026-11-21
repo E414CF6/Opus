@@ -99,6 +99,8 @@ class DatabaseRepositoryTest {
                 expShareMode = "EQUAL",
                 itemShareMode = "RANDOM",
                 motd = "Welcome!",
+                level = 5,
+                xp = 725.5,
             )
             repo.upsertParty(party)
             repo.upsertMember(PartyMemberRecord(leaderId, partyId, "LEADER"))
@@ -108,7 +110,16 @@ class DatabaseRepositoryTest {
             assertEquals(1, parties.size)
             assertEquals("Vanguard", parties.first().name)
             assertEquals("Welcome!", parties.first().motd)
+            assertEquals(5, parties.first().level)
+            assertEquals(725.5, parties.first().xp, 0.001)
             assertEquals(2, members.size)
+
+            // Rename + level progression update
+            repo.upsertParty(party.copy(name = "Aegis", level = 6, xp = 120.0))
+            val renamed = repo.loadAll().first.first()
+            assertEquals("Aegis", renamed.name)
+            assertEquals(6, renamed.level)
+            assertEquals(120.0, renamed.xp, 0.001)
 
             repo.deleteMember(memberId)
             assertEquals(1, repo.loadAll().second.size)

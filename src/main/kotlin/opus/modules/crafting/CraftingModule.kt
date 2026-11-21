@@ -9,10 +9,12 @@ import opus.events.XpGainReason
 import opus.skills.SkillType
 import opus.skills.SubSkillType
 import org.bukkit.Bukkit
-import org.bukkit.Location
 import org.bukkit.Material
+import org.bukkit.NamespacedKey
 import org.bukkit.Sound
+import org.bukkit.block.Block
 import org.bukkit.block.BrewingStand
+import org.bukkit.block.TileState
 import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -22,12 +24,11 @@ import org.bukkit.event.block.Action
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.inventory.*
 import org.bukkit.event.player.PlayerInteractEvent
-import org.bukkit.inventory.BrewerInventory
-import org.bukkit.inventory.EquipmentSlot
-import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.*
 import org.bukkit.inventory.meta.Damageable
 import org.bukkit.inventory.meta.EnchantmentStorageMeta
 import org.bukkit.inventory.meta.PotionMeta
+import org.bukkit.persistence.PersistentDataType
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionType
 import java.util.*
@@ -45,13 +46,60 @@ class CraftingModule(private val context: OpusContext) : OpusModule {
     val repairConfig = RepairConfig(context.plugin)
     val alchemyConfig = AlchemyConfig(context.plugin)
     private val listener = CraftingListener(context, repairConfig, alchemyConfig)
+    private val registeredMixKeys = mutableListOf<NamespacedKey>()
+
+    override fun onEnable() {
+        registerCustomPotionMixes()
+    }
 
     override fun onReload() {
         repairConfig.reload()
         alchemyConfig.reload()
+        unregisterCustomPotionMixes()
+        registerCustomPotionMixes()
+    }
+
+    override fun onDisable() {
+        unregisterCustomPotionMixes()
     }
 
     override fun listeners(): List<Listener> = listOf(listener)
+
+    private fun registerCustomPotionMixes() {
+        val awkwardIcon = ItemStack(Material.POTION).apply {
+            (itemMeta as? PotionMeta)?.let { meta ->
+                meta.basePotionType = PotionType.AWKWARD
+                itemMeta = meta
+            }
+        }
+        for (recipe in alchemyConfig.customRecipes.values) {
+            val key = NamespacedKey(context.plugin, "concoction_${recipe.ingredient.name.lowercase()}")
+            val result = ItemStack(Material.POTION).apply {
+                val meta = itemMeta as? PotionMeta ?: return@apply
+                meta.addCustomEffect(PotionEffect(recipe.effectType, recipe.durationTicks, recipe.amplifier), true)
+                meta.color = recipe.color
+                meta.displayName(TextFormatter.format("<!italic>${recipe.displayName}"))
+                itemMeta = meta
+            }
+            val input = RecipeChoice.predicateChoice({ stack ->
+                (stack.type == Material.POTION || stack.type == Material.SPLASH_POTION || stack.type == Material.LINGERING_POTION) &&
+                        (stack.itemMeta as? PotionMeta)?.basePotionType == PotionType.AWKWARD
+            }, awkwardIcon)
+            val ingredient = RecipeChoice.MaterialChoice(recipe.ingredient)
+            runCatching {
+                Bukkit.removeRecipe(key)
+                Bukkit.addRecipe(BrewingRecipe(key, result, input, ingredient))
+                registeredMixKeys += key
+            }
+        }
+    }
+
+    private fun unregisterCustomPotionMixes() {
+        for (key in registeredMixKeys) {
+            runCatching { Bukkit.removeRecipe(key) }
+        }
+        registeredMixKeys.clear()
+    }
 }
 
 class CraftingListener(
@@ -60,10 +108,21 @@ class CraftingListener(
     private val alchemyConfig: AlchemyConfig,
 ) : Listener {
 
-    private val furnaceOwners = ConcurrentHashMap<Location, UUID>()
-    private val standOwners = ConcurrentHashMap<Location, UUID>()
+    private val containerOwnerKey = NamespacedKey(context.plugin, "container_owner")
     private val chimaeraCooldowns = ConcurrentHashMap<UUID, Long>()
     private val channelingChimaera = ConcurrentHashMap.newKeySet<UUID>()
+
+    private fun setBlockOwner(block: Block, uuid: UUID) {
+        val state = block.state as? TileState ?: return
+        state.persistentDataContainer.set(containerOwnerKey, PersistentDataType.STRING, uuid.toString())
+        state.update()
+    }
+
+    private fun getBlockOwner(block: Block): UUID? {
+        val state = block.state as? TileState ?: return null
+        val raw = state.persistentDataContainer.get(containerOwnerKey, PersistentDataType.STRING) ?: return null
+        return runCatching { UUID.fromString(raw) }.getOrNull()
+    }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onInteract(event: PlayerInteractEvent) {
@@ -99,11 +158,11 @@ class CraftingListener(
             }
 
             Material.FURNACE, Material.BLAST_FURNACE, Material.SMOKER -> {
-                furnaceOwners[block.location] = player.uniqueId
+                setBlockOwner(block, player.uniqueId)
             }
 
             Material.BREWING_STAND -> {
-                standOwners[block.location] = player.uniqueId
+                setBlockOwner(block, player.uniqueId)
             }
 
             else -> Unit
@@ -113,11 +172,8 @@ class CraftingListener(
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onBlockPlace(event: BlockPlaceEvent) {
         when (event.block.type) {
-            Material.FURNACE, Material.BLAST_FURNACE, Material.SMOKER ->
-                furnaceOwners[event.block.location] = event.player.uniqueId
-
-            Material.BREWING_STAND ->
-                standOwners[event.block.location] = event.player.uniqueId
+            Material.FURNACE, Material.BLAST_FURNACE, Material.SMOKER, Material.BREWING_STAND ->
+                setBlockOwner(event.block, event.player.uniqueId)
 
             else -> Unit
         }
@@ -126,6 +182,10 @@ class CraftingListener(
     private fun handleRepair(player: Player, item: ItemStack): Boolean {
         val entry = repairConfig.findRepairable(item.type) ?: return false
         val meta = item.itemMeta as? Damageable ?: return false
+        if (!repairConfig.allowRepairCustomModelData && meta.hasCustomModelDataComponent()) {
+            context.locale.sendActionBar(player, "gameplay.custom-item-blocked")
+            return true
+        }
         val maxDurability = item.type.maxDurability.toInt()
         if (maxDurability <= 0) return false
         if (meta.damage <= 0) {
@@ -242,6 +302,10 @@ class CraftingListener(
 
     private fun handleSalvage(player: Player, item: ItemStack): Boolean {
         val entry = repairConfig.findSalvageable(item.type) ?: return false
+        if (!repairConfig.allowSalvageCustomModelData && item.itemMeta?.hasCustomModelDataComponent() == true) {
+            context.locale.sendActionBar(player, "gameplay.custom-item-blocked")
+            return true
+        }
         val state = context.players.getCached(player)
         val level = state.getLevel(SkillType.SALVAGE)
         val reqLevel = if (context.config.retroMode) entry.minimumLevel * 10 else entry.minimumLevel
@@ -267,7 +331,7 @@ class CraftingListener(
         if (salvageEvent.isCancelled) return true
 
         val enchants = item.enchantments.toMap()
-        player.inventory.setItemInMainHand(ItemStack(Material.AIR))
+        player.inventory.itemInMainHand = ItemStack(Material.AIR)
 
         val leftovers = player.inventory.addItem(ItemStack(entry.salvageMaterial, salvageEvent.salvagedAmount))
         leftovers.values.forEach { player.world.dropItemNaturally(player.location, it) }
@@ -327,7 +391,7 @@ class CraftingListener(
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onFurnaceBurn(event: FurnaceBurnEvent) {
-        val ownerUuid = furnaceOwners[event.block.location] ?: return
+        val ownerUuid = getBlockOwner(event.block) ?: return
         val state = context.players.getCached(ownerUuid) ?: return
         val rank = context.ranks.getRank(state, SubSkillType.SMELTING_FUEL_EFFICIENCY)
         if (rank <= 0) return
@@ -337,7 +401,7 @@ class CraftingListener(
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onFurnaceSmelt(event: FurnaceSmeltEvent) {
-        val ownerUuid = furnaceOwners[event.block.location] ?: return
+        val ownerUuid = getBlockOwner(event.block) ?: return
         val player = Bukkit.getPlayer(ownerUuid)
         val state = context.players.getCached(ownerUuid) ?: return
         val level = state.getLevel(SkillType.SMELTING)
@@ -350,7 +414,8 @@ class CraftingListener(
                         level,
                         maxLvl,
                         maxChance,
-                        player
+                        player,
+                        skill = SkillType.SMELTING,
                     )
                 )
             ) {
@@ -371,13 +436,26 @@ class CraftingListener(
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onFurnaceExtract(event: FurnaceExtractEvent) {
+        if (event.expToDrop <= 0) return
+        val player = event.player
+        val state = context.players.getCached(player)
+        if (!context.ranks.hasUnlocked(state, SubSkillType.SMELTING_UNDERSTANDING_THE_ART, player)) return
+        val rank = context.ranks.getRank(state, SubSkillType.SMELTING_UNDERSTANDING_THE_ART)
+        val mult = context.skillsConfig.intAtRank("smelting.vanilla-xp-multipliers", rank, 1).coerceAtLeast(1)
+        if (mult > 1) {
+            event.expToDrop *= mult
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onBrewStandInteract(event: InventoryClickEvent) {
         val inv = event.view.topInventory as? BrewerInventory ?: return
         if (inv.type != InventoryType.BREWING) return
         val holder = inv.holder ?: return
         val player = event.whoClicked as? Player ?: return
-        standOwners[holder.location] = player.uniqueId
+        setBlockOwner(holder.block, player.uniqueId)
 
         val state = context.players.getCached(player)
         if (context.ranks.hasUnlocked(state, SubSkillType.ALCHEMY_CATALYSIS, player)) {
@@ -397,7 +475,7 @@ class CraftingListener(
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onBrew(event: BrewEvent) {
-        val ownerUuid = standOwners[event.block.location] ?: return
+        val ownerUuid = getBlockOwner(event.block) ?: return
         val player = Bukkit.getPlayer(ownerUuid) ?: return
         val state = context.players.getCached(player)
         val ingredient = event.contents.ingredient ?: return

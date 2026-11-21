@@ -20,6 +20,7 @@ import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
 import org.bukkit.event.block.BlockBreakEvent
+import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.EntityExplodeEvent
 import org.bukkit.event.entity.FoodLevelChangeEvent
@@ -42,10 +43,15 @@ class GatheringModule(private val context: OpusContext) : OpusModule {
     override val description = "Mining, Woodcutting, Herbalism, Excavation, and Fishing RPG mechanics"
 
     val treasures = TreasureConfig(context.plugin)
-    private val listener = GatheringListener(context, treasures)
+    private val plantCollapse = PlantCollapseService(context)
+    private val listener = GatheringListener(context, treasures, plantCollapse)
 
     override fun onReload() {
         treasures.reload()
+    }
+
+    override fun onDisable() {
+        plantCollapse.clearAll()
     }
 
     override fun listeners(): List<Listener> = listOf(listener)
@@ -54,6 +60,7 @@ class GatheringModule(private val context: OpusContext) : OpusModule {
 class GatheringListener(
     private val context: OpusContext,
     private val treasures: TreasureConfig,
+    private val plantCollapse: PlantCollapseService,
 ) : Listener {
 
     private data class FishSpotTracker(var location: Location, var count: Int)
@@ -127,6 +134,7 @@ class GatheringListener(
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onBlockBreak(event: BlockBreakEvent) {
         val player = event.player
+        plantCollapse.revokeClaim(event.block)
         if (!reentrantGuard.add(player.uniqueId)) return
         try {
             val block = event.block
@@ -265,6 +273,11 @@ class GatheringListener(
         targetBlock.type = Material.AIR
         val tnt = targetBlock.world.spawn(targetBlock.location.add(0.5, 0.5, 0.5), TNTPrimed::class.java)
         tnt.fuseTicks = 0
+        if (context.ranks.hasUnlocked(state, SubSkillType.MINING_BIGGER_BOMBS, player)) {
+            val rank = context.ranks.getRank(state, SubSkillType.MINING_BLAST_MINING)
+            val radiusMod = context.skillsConfig.doubleAtRank("mining.blast-mining.blast-radius-modifier", rank, 1.0)
+            tnt.yield = (tnt.yield + radiusMod.toFloat()).coerceAtMost(10.0f)
+        }
         blastDetonatorByTnt[tnt.uniqueId] = player.uniqueId
         context.locale.sendActionBar(player, "gameplay.mining-blast-detonate")
         return true
@@ -299,12 +312,26 @@ class GatheringListener(
             event.cause != EntityDamageEvent.DamageCause.ENTITY_EXPLOSION
         ) return
         val player = event.entity as? Player ?: return
+
+        // Cap PvP blast mining damage against other players to 24.0
+        if (event is EntityDamageByEntityEvent && event.damager is TNTPrimed) {
+            val owner = blastDetonatorByTnt[event.damager.uniqueId]
+            if (owner != null && owner != player.uniqueId) {
+                event.damage = event.damage.coerceAtMost(24.0)
+                return
+            }
+        }
+
         val state = context.players.getCached(player)
+        if (!context.ranks.hasUnlocked(state, SubSkillType.MINING_DEMOLITIONS_EXPERTISE, player)) return
         val rank = context.ranks.getRank(state, SubSkillType.MINING_BLAST_MINING)
         if (rank <= 0) return
         val reductionPct = context.skillsConfig.doubleAtRank("mining.blast-mining.blast-damage-decrease", rank, 0.0)
         if (reductionPct > 0.0) {
             event.damage = (event.damage * (1.0 - reductionPct / 100.0)).coerceAtLeast(0.0)
+            if (event.damage <= 0.0) {
+                event.isCancelled = true
+            }
         }
     }
 
@@ -405,6 +432,9 @@ class GatheringListener(
     }
 
     private fun handleHerbalism(player: Player, block: Block, tool: ItemStack, isPlaced: Boolean) {
+        if (plantCollapse.isTallPlant(block.type)) {
+            plantCollapse.trackColumnCollapse(player, block)
+        }
         val data = block.blockData
         if (data is Ageable && data.age < data.maximumAge) return
         if (isPlaced && data !is Ageable) return

@@ -59,6 +59,12 @@ exploit-fix:
   tree-feller-reduced-xp: true
   limit-tall-plant-farming: true
   piston-cheating: true
+  lava-stone-cobble-farming: true
+  snow-golem-excavation: true
+  enderman-endermite-farms: true
+  prevent-armor-stand-interaction: true
+  prevent-mannequin-interaction: true
+  prevent-plugin-npc-interaction: true
 
 diminished-returns:
   enabled: false

@@ -83,10 +83,18 @@ class DatabaseManager(
                         `item_share_mode` VARCHAR(16) NOT NULL DEFAULT 'NONE',
                         `ally_party_id` VARCHAR(36),
                         `motd` TEXT,
+                        `level` INT NOT NULL DEFAULT 0,
+                        `xp` DOUBLE NOT NULL DEFAULT 0,
                         `created_at` BIGINT NOT NULL DEFAULT 0
                     );
                     """.trimIndent()
                 )
+                runCatching {
+                    st.executeUpdate("ALTER TABLE `${table("parties")}` ADD COLUMN `level` INT NOT NULL DEFAULT 0;")
+                }
+                runCatching {
+                    st.executeUpdate("ALTER TABLE `${table("parties")}` ADD COLUMN `xp` DOUBLE NOT NULL DEFAULT 0;")
+                }
                 st.executeUpdate(
                     """
                     CREATE TABLE IF NOT EXISTS `${table("party_members")}` (

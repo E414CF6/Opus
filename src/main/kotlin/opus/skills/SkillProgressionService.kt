@@ -4,6 +4,7 @@ import opus.core.OpusContext
 import opus.core.player.OpusPlayerState
 import opus.core.text.TextFormatter
 import opus.events.*
+import opus.integration.WorldGuardHook
 import org.bukkit.Bukkit
 import org.bukkit.GameMode
 import org.bukkit.Sound
@@ -34,6 +35,7 @@ class SkillProgressionService(private val context: OpusContext) {
         if (rawAmount <= 0.0) return
         if (player.gameMode == GameMode.CREATIVE || player.gameMode == GameMode.SPECTATOR) return
         if (context.config.worldBlacklist.contains(player.world.name.lowercase())) return
+        if (context.getService<WorldGuardHook>()?.isXpAllowedAt(player) == false) return
         if (!player.hasPermission(skill.permissionNode) && !player.hasPermission("opus.skill.*")) return
 
         if (skill.isChild) {
@@ -53,9 +55,7 @@ class SkillProgressionService(private val context: OpusContext) {
         if (reason == XpGainReason.PVP) {
             effective *= expCfg.pvpMultiplier
         }
-        if (player.hasPermission("opus.xp.boost.${skill.key}") || player.hasPermission("opus.xp.boost.*")) {
-            effective *= expCfg.customXpPerkBoost
-        }
+        effective *= context.perks.resolveXpMultiplier(player, skill)
         if (expCfg.earlyGameBoostEnabled) {
             val level = state.getLevel(skill)
             val threshold = if (context.config.retroMode) 200 else 20
@@ -185,9 +185,9 @@ class SkillProgressionService(private val context: OpusContext) {
                 broadcastFiltered(player, msg)
             }
         }
+        val diff = newLevel - oldLevel
+        val oldPower = totalPower - diff
         if (context.config.powerLevelBroadcastEnabled && player.hasPermission("opus.broadcast.levelup")) {
-            val diff = newLevel - oldLevel
-            val oldPower = totalPower - diff
             val pInterval = context.config.powerLevelMilestoneInterval
             if (totalPower / pInterval > oldPower / pInterval) {
                 val msg = context.locale.prefixedComponent(
@@ -197,6 +197,7 @@ class SkillProgressionService(private val context: OpusContext) {
                 broadcastFiltered(player, msg)
             }
         }
+        context.levelUpCommands.executeOnLevelUp(player, state, skill, oldLevel, newLevel, oldPower, totalPower)
     }
 
     private fun broadcastFiltered(source: Player, message: net.kyori.adventure.text.Component) {
@@ -258,8 +259,11 @@ class SkillProgressionService(private val context: OpusContext) {
         }
 
         val level = state.getLevel(skill)
-        val durationSec = context.probability.abilityDurationSeconds(level)
-        val cooldownSec = context.skillsConfig.abilityCooldownSec
+        val durationSec = context.perks.applyActivationDurationPerk(
+            player,
+            context.probability.abilityDurationSeconds(level),
+        )
+        val cooldownSec = context.perks.applyCooldownPerk(player, context.skillsConfig.abilityCooldownSec)
 
         val event = OpusSuperAbilityActivateEvent(player, ability, durationSec, cooldownSec)
         Bukkit.getPluginManager().callEvent(event)

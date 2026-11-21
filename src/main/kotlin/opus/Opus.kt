@@ -6,6 +6,7 @@ import opus.core.command.CommandHelper
 import opus.core.gui.MenuListener
 import opus.integration.PlaceholderApiHook
 import opus.integration.PlaceholderService
+import opus.integration.WorldGuardHook
 import opus.modules.combat.CombatModule
 import opus.modules.crafting.CraftingModule
 import opus.modules.gathering.GatheringModule
@@ -20,15 +21,23 @@ import org.bukkit.plugin.java.JavaPlugin
 /**
  * Opus plugin entrypoint bootstrapping core RPG infrastructure and feature modules for Paper 26.3.
  */
-class OpusPlugin : JavaPlugin() {
+class Opus : JavaPlugin() {
 
     private var context: OpusContext? = null
     private var papiHook: PlaceholderApiHook? = null
+    private val worldGuardHook = WorldGuardHook(this)
+
+    override fun onLoad() {
+        worldGuardHook.registerFlagsOnLoad()
+    }
 
     override fun onEnable() {
         val ctx = OpusContext(this)
         context = ctx
         Bukkit.getServicesManager().register(OpusContext::class.java, ctx, this, ServicePriority.Normal)
+
+        worldGuardHook.refreshAvailability()
+        ctx.registerService(worldGuardHook)
 
         val placeholderService = PlaceholderService(ctx)
         ctx.registerService(placeholderService)

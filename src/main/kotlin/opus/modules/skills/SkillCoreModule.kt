@@ -14,13 +14,32 @@ import opus.skills.SuperAbilityType
 import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
+import org.bukkit.event.EventHandler
+import org.bukkit.event.Listener
+import org.bukkit.event.player.PlayerJoinEvent
 
 /**
- * Core RPG progression commands, GUIs, leaderboards, and administrative skill management.
+ * Core RPG progression commands, GUIs, leaderboards, hardcore/vampirism, and administrative skill management.
  */
 class SkillCoreModule(private val context: OpusContext) : OpusModule {
     override val id = "skills"
-    override val description = "Core RPG skill commands, GUIs, leaderboards, and admin management"
+    override val description = "Core RPG skill commands, GUIs, leaderboards, hardcore mode, and admin management"
+
+    private val hardcoreService = HardcoreService(context)
+    private val xpEventJoinListener = object : Listener {
+        @EventHandler
+        fun onJoin(event: PlayerJoinEvent) {
+            if (context.config.xpEventAnnounceOnJoin && context.experienceConfig.xpEventActive) {
+                context.locale.send(
+                    event.player,
+                    "commands.xprate-event-broadcast",
+                    "rate" to context.experienceConfig.globalMultiplier,
+                )
+            }
+        }
+    }
+
+    override fun listeners(): List<Listener> = listOf(hardcoreService, xpEventJoinListener)
 
     override fun registerCommands(registrar: Commands) {
         registerStatsAndHubCommands(registrar)
@@ -569,29 +588,230 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
             registrar,
             context,
             { name ->
-                CommandHelper.simpleArgsCommand(name, "opus.admin", executor = { ctx, args ->
-                    val sender = ctx.source.sender
-                    if (args.isEmpty()) {
-                        context.locale.send(
-                            sender,
-                            "commands.xprate-current",
-                            "rate" to context.experienceConfig.globalMultiplier
-                        )
-                        return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    }
-                    val rate = args[0].toDoubleOrNull()
-                    if (rate == null || rate <= 0.0) {
-                        context.locale.send(sender, "general.invalid-number", "value" to args[0])
-                        return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    }
-                    context.experienceConfig.globalMultiplier = rate
-                    context.locale.send(sender, "commands.xprate-set", "rate" to rate)
-                    Command.SINGLE_SUCCESS
-                })
+                CommandHelper.simpleArgsCommand(
+                    name,
+                    "opus.admin",
+                    executor = { ctx, args ->
+                        val sender = ctx.source.sender
+                        if (args.isEmpty()) {
+                            context.locale.send(
+                                sender,
+                                "commands.xprate-current",
+                                "rate" to context.experienceConfig.globalMultiplier,
+                            )
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
+                        if (args[0].equals("reset", ignoreCase = true)) {
+                            val restored = context.experienceConfig.configuredGlobalMultiplier
+                            context.experienceConfig.globalMultiplier = restored
+                            context.experienceConfig.xpEventActive = false
+                            Bukkit.broadcast(
+                                context.locale.prefixedComponent(
+                                    "commands.xprate-event-reset",
+                                    mapOf("rate" to restored.toString()),
+                                )
+                            )
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
+                        val rate = args[0].toDoubleOrNull()
+                        if (rate == null || rate <= 0.0) {
+                            context.locale.send(sender, "general.invalid-number", "value" to args[0])
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
+                        val isEvent = args.getOrNull(1)?.equals("true", ignoreCase = true) == true
+                        context.experienceConfig.globalMultiplier = rate
+                        context.experienceConfig.xpEventActive = isEvent
+                        if (isEvent) {
+                            Bukkit.broadcast(
+                                context.locale.prefixedComponent(
+                                    "commands.xprate-event-broadcast",
+                                    mapOf("rate" to rate.toString()),
+                                )
+                            )
+                        } else {
+                            context.locale.send(sender, "commands.xprate-set", "rate" to rate)
+                        }
+                        Command.SINGLE_SUCCESS
+                    },
+                    tabSuggester = { _, parts ->
+                        when (parts.size) {
+                            1 -> listOf("reset", "1.5", "2.0", "3.0")
+                            2 -> listOf("true", "false")
+                            else -> emptyList()
+                        }
+                    },
+                )
             },
             "xprate",
-            "View or change global XP rate",
+            "View or change global XP rate or start an XP event",
             listOf("mcxprate"),
+        )
+
+        CommandHelper.registerWithOptionalAliases(
+            registrar,
+            context,
+            { name ->
+                CommandHelper.simpleArgsCommand(
+                    name,
+                    "opus.command.mcgod",
+                    executor = { ctx, args ->
+                        val sender = ctx.source.sender
+                        val target = if (args.isNotEmpty()) Bukkit.getPlayerExact(args[0]) else sender as? Player
+                        if (target == null) {
+                            context.locale.send(
+                                sender,
+                                "general.player-not-found",
+                                "player" to (args.firstOrNull() ?: ""),
+                            )
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
+                        val state = context.players.getCached(target)
+                        state.godMode = !state.godMode
+                        context.locale.send(
+                            sender,
+                            "commands.god-toggled",
+                            "player" to target.name,
+                            "state" to if (state.godMode) "ON" else "OFF",
+                        )
+                        Command.SINGLE_SUCCESS
+                    },
+                    tabSuggester = { sender, parts ->
+                        if (parts.size <= 1) CommandHelper.suggestOnlinePlayers(
+                            sender,
+                            parts.lastOrNull() ?: "",
+                        ) else emptyList()
+                    },
+                )
+            },
+            "mcgod",
+            "Toggle Opus god mode",
+        )
+
+        CommandHelper.registerWithOptionalAliases(
+            registrar,
+            context,
+            { name ->
+                CommandHelper.simpleArgsCommand(
+                    name,
+                    "opus.command",
+                    executor = { ctx, args ->
+                        val sender = ctx.source.sender
+                        val skillArg = args.firstOrNull()
+                        if (skillArg != null) {
+                            val skill = SkillType.match(skillArg)
+                            if (skill == null) {
+                                context.locale.send(sender, "general.invalid-skill", "skill" to skillArg)
+                                return@simpleArgsCommand Command.SINGLE_SUCCESS
+                            }
+                            if (sender is Player) {
+                                sendSkillDetailText(sender, context.players.getCached(sender), skill)
+                            } else {
+                                sender.sendMessage(
+                                    TextFormatter.format(
+                                        "<aqua>${skill.displayName(context.config.language)}</aqua> <gray>- ${skill.subSkills().size} sub-skills</gray>"
+                                    )
+                                )
+                            }
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
+                        context.locale.sendRaw(sender, "commands.mmoinfo-header")
+                        context.locale.sendRaw(sender, "commands.mmoinfo-summary")
+                        Command.SINGLE_SUCCESS
+                    },
+                    tabSuggester = { _, parts ->
+                        if (parts.size <= 1) SkillType.entries.map { it.key }
+                            .filter { it.startsWith(parts.lastOrNull() ?: "", ignoreCase = true) }
+                        else emptyList()
+                    },
+                )
+            },
+            "mmoinfo",
+            "Display Opus RPG help and skill guides",
+            listOf("mcinfo"),
+        )
+
+        CommandHelper.registerWithOptionalAliases(
+            registrar,
+            context,
+            { name ->
+                CommandHelper.simpleArgsCommand(
+                    name,
+                    "opus.admin",
+                    executor = { ctx, args ->
+                        val sender = ctx.source.sender
+                        when (args.firstOrNull()?.lowercase()) {
+                            "on", "enable" -> context.config.hardcoreStatLossEnabled = true
+                            "off", "disable" -> context.config.hardcoreStatLossEnabled = false
+                            "rate" -> {
+                                val pct = args.getOrNull(1)?.toDoubleOrNull()
+                                if (pct == null || pct < 0.0 || pct > 100.0) {
+                                    context.locale.send(
+                                        sender,
+                                        "general.invalid-number",
+                                        "value" to (args.getOrNull(1) ?: "")
+                                    )
+                                    return@simpleArgsCommand Command.SINGLE_SUCCESS
+                                }
+                                context.config.hardcoreStatLossPercentage = pct
+                            }
+                        }
+                        context.locale.send(
+                            sender,
+                            "commands.hardcore-status",
+                            "state" to if (context.config.hardcoreStatLossEnabled) "ON" else "OFF",
+                            "rate" to context.config.hardcoreStatLossPercentage,
+                        )
+                        Command.SINGLE_SUCCESS
+                    },
+                    tabSuggester = { _, parts ->
+                        if (parts.size <= 1) listOf("on", "off", "rate") else emptyList()
+                    },
+                )
+            },
+            "hardcore",
+            "Configure Hardcore death stat loss mode",
+        )
+
+        CommandHelper.registerWithOptionalAliases(
+            registrar,
+            context,
+            { name ->
+                CommandHelper.simpleArgsCommand(
+                    name,
+                    "opus.admin",
+                    executor = { ctx, args ->
+                        val sender = ctx.source.sender
+                        when (args.firstOrNull()?.lowercase()) {
+                            "on", "enable" -> context.config.hardcoreVampirismEnabled = true
+                            "off", "disable" -> context.config.hardcoreVampirismEnabled = false
+                            "rate" -> {
+                                val pct = args.getOrNull(1)?.toDoubleOrNull()
+                                if (pct == null || pct < 0.0 || pct > 100.0) {
+                                    context.locale.send(
+                                        sender,
+                                        "general.invalid-number",
+                                        "value" to (args.getOrNull(1) ?: "")
+                                    )
+                                    return@simpleArgsCommand Command.SINGLE_SUCCESS
+                                }
+                                context.config.hardcoreVampirismPercentage = pct
+                            }
+                        }
+                        context.locale.send(
+                            sender,
+                            "commands.vampirism-status",
+                            "state" to if (context.config.hardcoreVampirismEnabled) "ON" else "OFF",
+                            "rate" to context.config.hardcoreVampirismPercentage,
+                        )
+                        Command.SINGLE_SUCCESS
+                    },
+                    tabSuggester = { _, parts ->
+                        if (parts.size <= 1) listOf("on", "off", "rate") else emptyList()
+                    },
+                )
+            },
+            "vampirism",
+            "Configure PvP Vampirism mode",
         )
 
         CommandHelper.registerWithOptionalAliases(

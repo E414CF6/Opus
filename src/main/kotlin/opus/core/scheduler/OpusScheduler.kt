@@ -66,6 +66,22 @@ class OpusScheduler(private val plugin: Plugin) {
         Bukkit.getRegionScheduler().execute(plugin, location, task)
     }
 
+    fun runAtLocationTimer(
+        location: Location,
+        initialDelayTicks: Long,
+        periodTicks: Long,
+        task: (ScheduledTask) -> Unit,
+    ): ScheduledTask? {
+        if (!plugin.isEnabled) return null
+        return Bukkit.getRegionScheduler().runAtFixedRate(
+            plugin,
+            location,
+            { scheduled -> task(scheduled) },
+            initialDelayTicks.coerceAtLeast(1L),
+            periodTicks.coerceAtLeast(1L),
+        )
+    }
+
     fun runForEntity(entity: Entity, retired: (() -> Unit)? = null, task: () -> Unit): Boolean {
         if (!plugin.isEnabled) return false
         return entity.scheduler.execute(plugin, task, retired, 1L)

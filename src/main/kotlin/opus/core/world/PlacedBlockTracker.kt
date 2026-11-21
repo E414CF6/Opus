@@ -1,16 +1,21 @@
 package opus.core.world
 
+import opus.core.config.ExperienceConfig
 import org.bukkit.Chunk
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
+import org.bukkit.entity.Enderman
+import org.bukkit.entity.Endermite
 import org.bukkit.entity.Entity
+import org.bukkit.entity.Snowman
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.*
 import org.bukkit.event.entity.CreatureSpawnEvent
+import org.bukkit.event.entity.EntityTargetLivingEntityEvent
 import org.bukkit.event.world.StructureGrowEvent
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
@@ -20,7 +25,10 @@ import org.bukkit.plugin.Plugin
  * Packs `(x & 15, y, z & 15)` into a 64-bit integer stored inside `Chunk.persistentDataContainer`.
  * All accesses happen on the chunk's owning region thread, making it 100% Folia-safe.
  */
-class PlacedBlockTracker(private val plugin: Plugin) : Listener {
+class PlacedBlockTracker(
+    private val plugin: Plugin,
+    private val experienceConfig: ExperienceConfig? = null,
+) : Listener {
 
     private val chunkKey = NamespacedKey(plugin, "placed_blocks")
     private val spawnReasonKey = NamespacedKey(plugin, "spawn_reason")
@@ -106,6 +114,31 @@ class PlacedBlockTracker(private val plugin: Plugin) : Listener {
     fun onStructureGrow(event: StructureGrowEvent) {
         for (state in event.blocks) {
             clearPlaced(state.block)
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onBlockForm(event: BlockFormEvent) {
+        if (experienceConfig?.lavaStoneCobbleGuard == false) return
+        val newType = event.newState.type
+        if (newType == Material.COBBLESTONE || newType == Material.STONE || newType == Material.OBSIDIAN || newType == Material.BASALT) {
+            markPlaced(event.block)
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onEntityBlockForm(event: EntityBlockFormEvent) {
+        if (experienceConfig?.snowGolemExcavationGuard == false) return
+        if (event.entity is Snowman && event.newState.type == Material.SNOW) {
+            markPlaced(event.block)
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    fun onEntityTargetLiving(event: EntityTargetLivingEntityEvent) {
+        if (experienceConfig?.endermanEndermiteGuard == false) return
+        if (event.entity is Enderman && event.target is Endermite) {
+            setSpawnReason(event.entity, "ENDERMITE_FARM")
         }
     }
 

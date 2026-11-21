@@ -55,6 +55,17 @@ general:
     cooldown-seconds: 60
     feather-cost: 1
 
+  xprate-event-announce-on-join: true
+
+  hardcore:
+    stat-loss-enabled: false
+    stat-loss-percentage: 5.0
+    stat-loss-level-threshold: 10
+    vampirism-enabled: false
+    vampirism-percentage: 5.0
+    vampirism-level-threshold: 10
+    excluded-skills: [ ]
+
 hud:
   # Default XP display: BOSSBAR, ACTIONBAR, BOTH, OFF
   default-xp-display: BOSSBAR

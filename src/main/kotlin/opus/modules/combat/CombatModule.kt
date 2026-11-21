@@ -1,6 +1,5 @@
 package opus.modules.combat
 
-import io.papermc.paper.event.player.PlayerArmSwingEvent
 import opus.core.OpusContext
 import opus.core.module.OpusModule
 import opus.events.XpGainReason
@@ -19,6 +18,7 @@ import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.entity.*
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.Damageable
@@ -44,23 +44,85 @@ class CombatModule(private val context: OpusContext) : OpusModule {
 
     private val listener = CombatListener(context)
 
+    override fun onDisable() {
+        listener.cleanupAllSummons()
+    }
+
     override fun listeners(): List<Listener> = listOf(listener)
 }
 
 class CombatListener(private val context: OpusContext) : Listener {
 
     private val aoeGuard = ConcurrentHashMap.newKeySet<UUID>()
-    private val lastAttackStrength = ConcurrentHashMap<UUID, Double>()
     private val dodgeXpPerMob = ConcurrentHashMap<UUID, Double>()
     private val activeRuptures = ConcurrentHashMap<UUID, Long>()
     private val callOfWildCooldowns = ConcurrentHashMap<UUID, Long>()
+    private val arrowsStuckInEntity = ConcurrentHashMap<UUID, Int>()
+    private val activeSummonsByOwner = ConcurrentHashMap<UUID, MutableSet<LivingEntity>>()
+    private val transientSummonIds = ConcurrentHashMap.newKeySet<UUID>()
 
     private val bounceCountKey = NamespacedKey(context.plugin, "trickshot_bounces")
     private val explosiveShotKey = NamespacedKey(context.plugin, "explosive_shot")
+    private val infinityArrowKey = NamespacedKey(context.plugin, "infinity_arrow")
+    private val disarmOwnerKey = NamespacedKey(context.plugin, "disarm_owner")
+    private val disarmExpiryKey = NamespacedKey(context.plugin, "disarm_expiry")
+
+    fun cleanupAllSummons() {
+        for (set in activeSummonsByOwner.values) {
+            for (entity in set) {
+                transientSummonIds.remove(entity.uniqueId)
+                if (entity.isValid) {
+                    entity.remove()
+                }
+            }
+        }
+        activeSummonsByOwner.clear()
+        transientSummonIds.clear()
+        arrowsStuckInEntity.clear()
+    }
+
+    @EventHandler
+    fun onQuit(event: PlayerQuitEvent) {
+        val summons = activeSummonsByOwner.remove(event.player.uniqueId) ?: return
+        for (entity in summons) {
+            transientSummonIds.remove(entity.uniqueId)
+            if (entity.isValid) {
+                context.scheduler.runForEntity(entity) { entity.remove() }
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onSummonBreed(event: EntityBreedEvent) {
+        if (!context.skillsConfig.boolean("taming.call-of-the-wild.prevent-breeding", true)) return
+        if (event.mother.uniqueId in transientSummonIds || event.father.uniqueId in transientSummonIds) {
+            event.isCancelled = true
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onDisarmAntiTheftPickup(event: EntityPickupItemEvent) {
+        val itemEntity = event.item
+        val ownerStr = itemEntity.persistentDataContainer.get(disarmOwnerKey, PersistentDataType.STRING) ?: return
+        val expiry = itemEntity.persistentDataContainer.get(disarmExpiryKey, PersistentDataType.LONG) ?: 0L
+        if (System.currentTimeMillis() > expiry) {
+            itemEntity.persistentDataContainer.remove(disarmOwnerKey)
+            itemEntity.persistentDataContainer.remove(disarmExpiryKey)
+            return
+        }
+        if (event.entity.uniqueId.toString() != ownerStr) {
+            event.isCancelled = true
+        }
+    }
 
     @EventHandler(priority = EventPriority.MONITOR)
-    fun onArmSwing(event: PlayerArmSwingEvent) {
-        lastAttackStrength[event.player.uniqueId] = event.player.attackCooldown.toDouble()
+    fun onEntityDeath(event: EntityDeathEvent) {
+        val entity = event.entity
+        transientSummonIds.remove(entity.uniqueId)
+        val arrows = arrowsStuckInEntity.remove(entity.uniqueId) ?: return
+        if (arrows > 0) {
+            event.drops.add(ItemStack(Material.ARROW, arrows))
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -158,6 +220,9 @@ class CombatListener(private val context: OpusContext) : Listener {
         val proj = event.projectile as? AbstractArrow ?: return
 
         if (bow.type == Material.BOW) {
+            if (bow.containsEnchantment(Enchantment.INFINITY)) {
+                proj.persistentDataContainer.set(infinityArrowKey, PersistentDataType.BYTE, 1)
+            }
             if (context.progression.tryActivateAbility(player, SkillType.ARCHERY)) {
                 proj.persistentDataContainer.set(explosiveShotKey, PersistentDataType.BYTE, 1)
             }
@@ -173,7 +238,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                         0.5f
                     )
                     extra.shooter = player
-                    extra.setWeapon(ItemStack(Material.CROSSBOW))
+                    extra.weapon = ItemStack(Material.CROSSBOW)
                     extra.pickupStatus = AbstractArrow.PickupStatus.DISALLOWED
                 }
             }
@@ -213,7 +278,7 @@ class CombatListener(private val context: OpusContext) : Listener {
         reflectedArrow.isCritical = arrow.isCritical
         reflectedArrow.pierceLevel = arrow.pierceLevel
         reflectedArrow.pickupStatus = arrow.pickupStatus
-        reflectedArrow.setWeapon(ItemStack(Material.CROSSBOW))
+        reflectedArrow.weapon = ItemStack(Material.CROSSBOW)
         arrow.basePotionType?.let {
             reflectedArrow.itemStack = ItemStack(Material.TIPPED_ARROW)
             reflectedArrow.basePotionType = it
@@ -228,6 +293,12 @@ class CombatListener(private val context: OpusContext) : Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onDamage(event: EntityDamageEvent) {
         val entity = event.entity
+
+        // Opus God Mode protection
+        if (entity is Player && context.players.getCached(entity).godMode) {
+            event.isCancelled = true
+            return
+        }
 
         // Acrobatics Roll & Graceful Roll on fall damage
         if (entity is Player && event.cause == EntityDamageEvent.DamageCause.FALL) {
@@ -288,6 +359,13 @@ class CombatListener(private val context: OpusContext) : Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onCombatDamage(event: EntityDamageByEntityEvent) {
         val defender = event.entity as? LivingEntity ?: return
+        if (isInvalidCombatEntity(defender) || isInvalidCombatEntity(event.damager)) return
+
+        // Opus God Mode protection
+        if (defender is Player && context.players.getCached(defender).godMode) {
+            event.isCancelled = true
+            return
+        }
 
         // Defender Acrobatics Dodge / Swords Counter Attack / Unarmed Arrow Deflect
         if (defender is Player) {
@@ -504,11 +582,12 @@ class CombatListener(private val context: OpusContext) : Listener {
                 event.damage += context.skillsConfig.double("tridents.impale.base-damage", 1.0) +
                         impaleRank * context.skillsConfig.double("tridents.impale.rank-damage-multiplier", 0.5)
             }
+            event.damage += limitBreakBonus(shooter, target, SubSkillType.TRIDENTS_TRIDENTS_LIMIT_BREAK, 1.0)
             awardCombatXp(shooter, SkillType.TRIDENTS, target, event.damage)
             return
         }
 
-        if (proj is Arrow && proj.isShotFromCrossbow) {
+        if (proj is Arrow && proj.weapon?.type == Material.CROSSBOW) {
             if (!canTriggerCombat(SkillType.CROSSBOWS, target)) return
             val rank = context.ranks.getRank(state, SubSkillType.CROSSBOWS_POWERED_SHOT)
             if (rank > 0) {
@@ -517,6 +596,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                 val maxDmg = context.skillsConfig.double("crossbows.powered-shot.max-damage", 9.0)
                 event.damage += (event.damage * pct).coerceAtMost(maxDmg)
             }
+            event.damage += limitBreakBonus(shooter, target, SubSkillType.CROSSBOWS_CROSSBOWS_LIMIT_BREAK, 1.0)
             awardCombatXp(shooter, SkillType.CROSSBOWS, target, event.damage)
             return
         }
@@ -529,6 +609,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                 val maxDmg = context.skillsConfig.double("archery.skill-shot.max-damage", 9.0)
                 event.damage += (event.damage * pct).coerceAtMost(maxDmg)
             }
+            event.damage += limitBreakBonus(shooter, target, SubSkillType.ARCHERY_ARCHERY_LIMIT_BREAK, 1.0)
             if (target is Player && context.ranks.hasUnlocked(state, SubSkillType.ARCHERY_DAZE, shooter)) {
                 val maxLvl = context.skillsConfig.maxBonusLevel("archery.daze", context.config.retroMode)
                 val maxChance = context.skillsConfig.double("archery.daze.chance-max", 50.0)
@@ -537,7 +618,8 @@ class CombatListener(private val context: OpusContext) : Listener {
                             state.getLevel(SkillType.ARCHERY),
                             maxLvl,
                             maxChance,
-                            shooter
+                            shooter,
+                            skill = SkillType.ARCHERY,
                         )
                     )
                 ) {
@@ -546,7 +628,10 @@ class CombatListener(private val context: OpusContext) : Listener {
                     context.locale.sendActionBar(shooter, "gameplay.archery-daze")
                 }
             }
-            if (context.ranks.hasUnlocked(state, SubSkillType.ARCHERY_ARROW_RETRIEVAL, shooter)) {
+            if (target !is Player &&
+                !proj.persistentDataContainer.has(infinityArrowKey, PersistentDataType.BYTE) &&
+                context.ranks.hasUnlocked(state, SubSkillType.ARCHERY_ARROW_RETRIEVAL, shooter)
+            ) {
                 val maxLvl = context.skillsConfig.maxBonusLevel("archery.arrow-retrieval", context.config.retroMode)
                 val maxChance = context.skillsConfig.double("archery.arrow-retrieval.chance-max", 100.0)
                 if (context.probability.rollPercent(
@@ -554,11 +639,12 @@ class CombatListener(private val context: OpusContext) : Listener {
                             state.getLevel(SkillType.ARCHERY),
                             maxLvl,
                             maxChance,
-                            shooter
+                            shooter,
+                            skill = SkillType.ARCHERY,
                         )
                     )
                 ) {
-                    shooter.inventory.addItem(ItemStack(Material.ARROW, 1))
+                    arrowsStuckInEntity.merge(target.uniqueId, 1, Int::plus)
                 }
             }
             val distBonus =
@@ -570,8 +656,13 @@ class CombatListener(private val context: OpusContext) : Listener {
     private fun handleMeleeAttack(attacker: Player, target: LivingEntity, event: EntityDamageByEntityEvent) {
         val hand = attacker.inventory.itemInMainHand.type
         val state = context.players.getCached(attacker)
-        val strength =
-            (lastAttackStrength.remove(attacker.uniqueId) ?: attacker.attackCooldown.toDouble()).coerceIn(0.0, 1.0)
+        val maxBaseDmg = attacker.getAttribute(Attribute.ATTACK_DAMAGE)?.value ?: 1.0
+        val strength = CombatLimitBreak.deriveAttackStrengthScale(
+            rawEventDamage = event.damage,
+            maxBaseAttackDamage = maxBaseDmg,
+            isSweepAttack = event.cause == EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK,
+            adjustForCooldown = context.skillsConfig.adjustForAttackCooldown,
+        )
 
         when {
             hand == Material.AIR -> {
@@ -586,6 +677,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                         1.0
                     ) * strength
                 }
+                event.damage += limitBreakBonus(attacker, target, SubSkillType.UNARMED_UNARMED_LIMIT_BREAK, strength)
                 if (berserk) {
                     event.damage *= 1.5
                 }
@@ -597,7 +689,8 @@ class CombatListener(private val context: OpusContext) : Listener {
                         maxLvl,
                         maxChance,
                         attacker,
-                        strength
+                        strength,
+                        skill = SkillType.UNARMED,
                     )
                     if (context.probability.rollPercent(chance)) {
                         tryDisarm(attacker, target)
@@ -615,6 +708,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                     event.damage += (context.skillsConfig.double("swords.stab.base-damage", 1.0) +
                             stabRank * context.skillsConfig.double("swords.stab.per-rank-multiplier", 1.5)) * strength
                 }
+                event.damage += limitBreakBonus(attacker, target, SubSkillType.SWORDS_SWORDS_LIMIT_BREAK, strength)
                 val ruptureRank = context.ranks.getRank(state, SubSkillType.SWORDS_RUPTURE)
                 if (ruptureRank > 0) {
                     val chance =
@@ -644,6 +738,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                         1.0
                     ) * strength
                 }
+                event.damage += limitBreakBonus(attacker, target, SubSkillType.AXES_AXES_LIMIT_BREAK, strength)
                 if (context.ranks.hasUnlocked(state, SubSkillType.AXES_CRITICAL_STRIKES, attacker)) {
                     val maxLvl = context.skillsConfig.maxBonusLevel("axes.critical-strikes", context.config.retroMode)
                     val maxChance = context.skillsConfig.double("axes.critical-strikes.chance-max", 37.5)
@@ -703,6 +798,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                         1.0
                     )) * strength
                 }
+                event.damage += limitBreakBonus(attacker, target, SubSkillType.MACES_MACES_LIMIT_BREAK, strength)
                 val crippleRank = context.ranks.getRank(state, SubSkillType.MACES_CRIPPLE)
                 if (crippleRank > 0) {
                     val chance =
@@ -738,6 +834,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                         0.4
                     ) * strength
                 }
+                event.damage += limitBreakBonus(attacker, target, SubSkillType.SPEARS_SPEARS_LIMIT_BREAK, strength)
                 val momentumRank = context.ranks.getRank(state, SubSkillType.SPEARS_MOMENTUM)
                 if (momentumRank > 0) {
                     val chance =
@@ -765,12 +862,35 @@ class CombatListener(private val context: OpusContext) : Listener {
                         0.5
                     )) * strength
                 }
+                event.damage += limitBreakBonus(attacker, target, SubSkillType.TRIDENTS_TRIDENTS_LIMIT_BREAK, strength)
                 if (surge) {
                     event.damage *= 1.35
                 }
                 awardCombatXp(attacker, SkillType.TRIDENTS, target, event.damage)
             }
         }
+    }
+
+    private fun limitBreakBonus(
+        attacker: Player,
+        target: LivingEntity,
+        subSkill: SubSkillType,
+        strength: Double
+    ): Double {
+        if (target !is Player && !context.skillsConfig.limitBreakAllowPve) return 0.0
+        val state = context.players.getCached(attacker)
+        if (!context.ranks.hasUnlocked(state, subSkill, attacker)) return 0.0
+        val rank = context.ranks.getRank(state, subSkill)
+        val armorQuality = if (target is Player) CombatLimitBreak.armorQualityOf(target) else 1000
+        return CombatLimitBreak.calculateBonus(rank, armorQuality) * strength
+    }
+
+    private fun isInvalidCombatEntity(entity: Entity): Boolean {
+        val exp = context.experienceConfig
+        if (exp.preventArmorStandInteraction && entity is ArmorStand) return true
+        if (exp.preventMannequinInteraction && entity.type.name == "MANNEQUIN") return true
+        if (exp.preventPluginNpcInteraction && entity.hasMetadata("NPC")) return true
+        return false
     }
 
     private fun canTriggerCombat(skill: SkillType, target: LivingEntity): Boolean {
@@ -788,6 +908,7 @@ class CombatListener(private val context: OpusContext) : Listener {
             "SPAWN_EGG" -> context.experienceConfig.spawnEggMultiplier
             "NETHER_PORTAL" -> context.experienceConfig.netherPortalMultiplier
             "BREEDING" -> context.experienceConfig.breedingMultiplier
+            "ENDERMITE_FARM" -> 0.0
             else -> if (target is Tameable && target.isTamed) context.experienceConfig.playerTamedMultiplier else 1.0
         }
         if (spawnMult <= 0.0) return
@@ -879,8 +1000,16 @@ class CombatListener(private val context: OpusContext) : Listener {
         val held = target.inventory.itemInMainHand
         if (held.type == Material.AIR) return
         val clone = held.clone()
-        target.inventory.setItemInMainHand(ItemStack(Material.AIR))
-        target.world.dropItemNaturally(target.location, clone)
+        target.inventory.itemInMainHand = ItemStack(Material.AIR)
+        val dropped = target.world.dropItemNaturally(target.location, clone)
+        if (context.skillsConfig.boolean("unarmed.disarm.anti-theft", false)) {
+            dropped.persistentDataContainer.set(disarmOwnerKey, PersistentDataType.STRING, target.uniqueId.toString())
+            dropped.persistentDataContainer.set(
+                disarmExpiryKey,
+                PersistentDataType.LONG,
+                System.currentTimeMillis() + 5000L
+            )
+        }
         context.locale.sendActionBar(attacker, "gameplay.unarmed-disarm")
     }
 
@@ -917,6 +1046,20 @@ class CombatListener(private val context: OpusContext) : Listener {
             return true
         }
 
+        val maxSummons = context.skillsConfig.int("taming.call-of-the-wild.max-summons", 2).coerceAtLeast(1)
+        val ownerSummons = activeSummonsByOwner.computeIfAbsent(player.uniqueId) { ConcurrentHashMap.newKeySet() }
+        ownerSummons.removeIf { !it.isValid || it.isDead }
+        val activeOfType = ownerSummons.count { it.type == entityType }
+        if (activeOfType >= maxSummons) {
+            context.locale.sendActionBar(
+                player,
+                "gameplay.taming-summon-limit",
+                "mob" to mobName,
+                "max" to maxSummons,
+            )
+            return true
+        }
+
         if (item.amount < requiredAmount) {
             context.locale.sendActionBar(
                 player,
@@ -937,6 +1080,24 @@ class CombatListener(private val context: OpusContext) : Listener {
         }
         if (spawned is AbstractHorse) {
             spawned.jumpStrength = ThreadLocalRandom.current().nextDouble(0.7, 1.0)
+        }
+        if (spawned is LivingEntity) {
+            ownerSummons.add(spawned)
+            transientSummonIds.add(spawned.uniqueId)
+            val lifeSec =
+                context.skillsConfig.int("taming.call-of-the-wild.summon-lifetime-seconds", 240).coerceAtLeast(10)
+            context.scheduler.runForEntityDelayed(spawned, lifeSec * 20L) {
+                ownerSummons.remove(spawned)
+                transientSummonIds.remove(spawned.uniqueId)
+                if (spawned.isValid) {
+                    spawned.world.playSound(spawned.location, Sound.BLOCK_FIRE_EXTINGUISH, 0.7f, 1.0f)
+                    spawned.world.spawnParticle(Particle.SMOKE, spawned.location.add(0.0, 0.5, 0.0), 8)
+                    spawned.remove()
+                    if (player.isOnline) {
+                        context.locale.sendActionBar(player, "gameplay.taming-summon-expired", "mob" to mobName)
+                    }
+                }
+            }
         }
         context.locale.sendActionBar(player, "gameplay.taming-summoned", "mob" to mobName)
         return true

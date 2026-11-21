@@ -1,0 +1,33 @@
+# Runs commands when players reach configured skill levels or power-level milestones.
+#
+# Placeholders:
+#   {@player}          - Player name
+#   {@skill}           - Skill name (localized)
+#   {@level}           - Milestone level reached
+#   {@power_level}     - Player's current/milestone power level
+#   {@<skill>_level}   - Current level in that skill (e.g. {@mining_level})
+#   PlaceholderAPI     - Also resolved when PlaceholderAPI is installed
+
+level_up_commands:
+  mining_milestones:
+    enabled: false
+    skills: [ Mining, Excavation ]
+    levels: [ 10, 50, 100 ]
+    run_as: CONSOLE
+    commands:
+      - "give {@player} minecraft:diamond 1"
+
+  any_skill_mastery:
+    enabled: false
+    skills: all
+    levels: [ 100 ]
+    run_as: CONSOLE
+    commands:
+      - "tellraw @a {\"text\":\"[Opus] {@player} mastered {@skill} (Lv.{@level})!\",\"color\":\"gold\"}"
+
+  power_level_milestones:
+    enabled: false
+    power_levels: [ 500, 1000, 1500 ]
+    run_as: CONSOLE
+    commands:
+      - "give {@player} minecraft:emerald 5"

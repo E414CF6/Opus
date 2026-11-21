@@ -1,6 +1,6 @@
 name: Opus
 version: '${version}'
-main: opus.OpusPlugin
+main: opus.Opus
 api-version: '26.3'
 folia-supported: true
 load: POSTWORLD
@@ -54,4 +54,10 @@ permissions:
     default: op
   opus.bypass.partyteleport:
     description: Bypasses party teleport warmup and cooldown
+    default: op
+  opus.bypass.hardcore:
+    description: Exempts player from Hardcore stat loss and Vampirism
+    default: op
+  opus.command.mcgod:
+    description: Grants access to /mcgod command
     default: op

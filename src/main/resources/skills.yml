@@ -216,6 +216,9 @@ taming:
     ocelot-fish: 10
     horse-apples: 10
     cooldown-seconds: 30
+    max-summons: 2
+    summon-lifetime-seconds: 240
+    prevent-breeding: true
 
 tridents:
   impale:
@@ -227,6 +230,7 @@ unarmed:
     chance-max: 33.0
     max-bonus-level-standard: 100
     max-bonus-level-retro: 1000
+    anti-theft: false
   arrow-deflect:
     chance-max: 50.0
     max-bonus-level-standard: 100

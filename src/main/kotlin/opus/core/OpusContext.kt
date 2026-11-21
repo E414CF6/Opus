@@ -15,10 +15,7 @@ import opus.core.module.ModuleRegistry
 import opus.core.player.PlayerDataService
 import opus.core.scheduler.OpusScheduler
 import opus.core.world.PlacedBlockTracker
-import opus.skills.FormulaService
-import opus.skills.ProbabilityService
-import opus.skills.RankService
-import opus.skills.SkillProgressionService
+import opus.skills.*
 import org.bukkit.plugin.java.JavaPlugin
 import java.util.concurrent.ConcurrentHashMap
 
@@ -39,11 +36,13 @@ class OpusContext(val plugin: JavaPlugin) {
     val partyRepository = PartyRepository(database)
 
     val players = PlayerDataService(playerRepository, scheduler, config)
-    val placedBlocks = PlacedBlockTracker(plugin)
+    val placedBlocks = PlacedBlockTracker(plugin, experienceConfig)
 
     val formula = FormulaService(experienceConfig)
     val ranks = RankService(config, ranksConfig)
-    val probability = ProbabilityService(config, skillsConfig)
+    val perks = PerksService(experienceConfig)
+    val levelUpCommands = LevelUpCommandService(this)
+    val probability = ProbabilityService(config, skillsConfig, perks)
     val progression = SkillProgressionService(this)
 
     val modules = ModuleRegistry(plugin, config)
@@ -83,6 +82,7 @@ class OpusContext(val plugin: JavaPlugin) {
         experienceConfig.reload()
         ranksConfig.reload()
         skillsConfig.reload()
+        levelUpCommands.reload()
         formula.clearCache()
         locale.reload()
         modules.reloadAll()

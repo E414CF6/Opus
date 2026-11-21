@@ -75,6 +75,25 @@ class ExperienceConfig(plugin: Plugin? = null, initialYaml: YamlConfiguration? =
         private set
     var pistonCheatingGuard: Boolean = true
         private set
+    var lavaStoneCobbleGuard: Boolean = true
+        private set
+    var snowGolemExcavationGuard: Boolean = true
+        private set
+    var endermanEndermiteGuard: Boolean = true
+        private set
+    var preventArmorStandInteraction: Boolean = true
+        private set
+    var preventMannequinInteraction: Boolean = true
+        private set
+    var preventPluginNpcInteraction: Boolean = true
+        private set
+
+    @Volatile
+    var configuredGlobalMultiplier: Double = 1.0
+        private set
+
+    @Volatile
+    var xpEventActive: Boolean = false
 
     var diminishedReturnsEnabled: Boolean = false
         private set
@@ -146,6 +165,7 @@ class ExperienceConfig(plugin: Plugin? = null, initialYaml: YamlConfiguration? =
         cumulativeCurve = y.getBoolean("formula.cumulative-curve", false)
 
         globalMultiplier = y.getDouble("multipliers.global", 1.0)
+        configuredGlobalMultiplier = globalMultiplier
         pvpMultiplier = y.getDouble("multipliers.pvp", 1.0)
         customXpPerkBoost = y.getDouble("multipliers.custom-xp-perk-boost", 1.25)
 
@@ -170,6 +190,12 @@ class ExperienceConfig(plugin: Plugin? = null, initialYaml: YamlConfiguration? =
         treeFellerReducedXp = y.getBoolean("exploit-fix.tree-feller-reduced-xp", true)
         limitTallPlantFarming = y.getBoolean("exploit-fix.limit-tall-plant-farming", true)
         pistonCheatingGuard = y.getBoolean("exploit-fix.piston-cheating", true)
+        lavaStoneCobbleGuard = y.getBoolean("exploit-fix.lava-stone-cobble-farming", true)
+        snowGolemExcavationGuard = y.getBoolean("exploit-fix.snow-golem-excavation", true)
+        endermanEndermiteGuard = y.getBoolean("exploit-fix.enderman-endermite-farms", true)
+        preventArmorStandInteraction = y.getBoolean("exploit-fix.prevent-armor-stand-interaction", true)
+        preventMannequinInteraction = y.getBoolean("exploit-fix.prevent-mannequin-interaction", true)
+        preventPluginNpcInteraction = y.getBoolean("exploit-fix.prevent-plugin-npc-interaction", true)
 
         diminishedReturnsEnabled = y.getBoolean("diminished-returns.enabled", false)
         diminishedReturnsMinutes = y.getInt("diminished-returns.time-interval-minutes", 10).coerceAtLeast(1)

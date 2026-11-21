@@ -12,6 +12,7 @@ import java.util.concurrent.ThreadLocalRandom
 class ProbabilityService(
     private val config: OpusConfig,
     private val skillsConfig: SkillsConfig,
+    private val perks: PerksService? = null,
 ) {
 
     fun linearChancePercent(
@@ -20,6 +21,7 @@ class ProbabilityService(
         chanceMax: Double,
         player: Player? = null,
         attackStrength: Double = 1.0,
+        skill: SkillType? = null,
     ): Double {
         val cappedLevel = skillLevel.coerceIn(0, maxBonusLevel.coerceAtLeast(1))
         var chance = (cappedLevel.toDouble() / maxBonusLevel.toDouble()) * chanceMax
@@ -27,6 +29,9 @@ class ProbabilityService(
             val luck = player.getAttribute(Attribute.LUCK)?.value ?: 0.0
             if (luck != 0.0) {
                 chance *= (1.0 + (luck * 0.05)).coerceAtLeast(0.1)
+            }
+            if (skill != null && perks?.hasLuckyPerk(player, skill) == true) {
+                chance *= 1.3333333333333333
             }
         }
         if (skillsConfig.adjustForAttackCooldown) {

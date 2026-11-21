@@ -47,6 +47,11 @@ class RepairConfig(plugin: Plugin? = null, initialYaml: YamlConfiguration? = nul
     private val repairables = HashMap<Material, RepairableEntry>()
     private val salvageables = HashMap<Material, SalvageableEntry>()
 
+    var allowRepairCustomModelData: Boolean = true
+        private set
+    var allowSalvageCustomModelData: Boolean = true
+        private set
+
     init {
         if (initialYaml != null) {
             applyYaml(initialYaml)
@@ -62,6 +67,8 @@ class RepairConfig(plugin: Plugin? = null, initialYaml: YamlConfiguration? = nul
     }
 
     fun applyYaml(y: YamlConfiguration) {
+        allowRepairCustomModelData = y.getBoolean("custom-item-support.allow-repair-custom-model-data", true)
+        allowSalvageCustomModelData = y.getBoolean("custom-item-support.allow-salvage-custom-model-data", true)
         repairables.clear()
         salvageables.clear()
 

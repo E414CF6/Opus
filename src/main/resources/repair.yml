@@ -1,6 +1,10 @@
 # Opus Repair & Salvage Item Definitions
 # Unlisted craftable items infer repair/salvage material and quantity automatically from Bukkit recipes when possible.
 
+custom-item-support:
+  allow-repair-custom-model-data: true
+  allow-salvage-custom-model-data: true
+
 repairables:
   SHIELD:
     category: WOOD
