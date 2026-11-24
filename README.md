@@ -18,7 +18,7 @@ All **6 modules** can be individually toggled under `modules:` in `config.yml`:
 | Module ID | Description | Key Systems & Commands |
 | :--- | :--- | :--- |
 | `skills` | Core RPG progression engine, perks, level-up milestone commands, Hardcore/Vampirism, GUIs, leaderboards, and admin commands | `/opus`, `/skills` (`/mcstats`), `/<skill>` (all 19 skills), `/mctop`, `/mcrank`, `/inspect`, `/mmoinfo`, `/mccooldown`, `/mcability`, `/mmopower`, `/mcgod`, `/hardcore`, `/vampirism`, `/addxp`, `/addlevels`, `/mmoedit`, `/mcrefresh`, `/xprate`, `/mcremove`, `/mcpurge`, `/skillreset`, `/mmodebug` |
-| `hud` | Adventure BossBar XP bars, ActionBar alerts, sidebar scoreboard, `BELOW_NAME` power level tag, and mob health bars | `/mmoxpbar`, `/mcscoreboard`, `/mcnotify`, `/mclevelupsound` |
+| `hud` | Adventure BossBar XP/ability/warmup/mob-health bars, ActionBar alerts, HUD settings Dialog, sidebar scoreboard, and `BELOW_NAME` power level tag | `/mmohud`, `/mmoxpbar`, `/mcscoreboard`, `/mcnotify`, `/mclevelupsound` |
 | `gathering` | Mining, Woodcutting, Herbalism, Excavation, and Fishing | Double/Triple drops, Super Breaker, Blast Mining (`Bigger Bombs`, `Demolitions Expertise` with PvP damage cap), Tree Feller, Leaf Blower, Green Terra, Green/Shroom Thumb, Hylian Luck, multi-block tall plant collapse verification, Archaeology, Treasure Hunter, Magic Hunter, Ice Fishing, Master Angler, Shake |
 | `combat` | Swords, Axes, Archery, Crossbows, Tridents, Maces, Spears, Unarmed, Taming, Acrobatics | All 8 Combat Limit Breaks with defender armor-quality scaling, Paper 26.3 attack-strength derivation, Serrated Strikes, Rupture, Counter Attack, Skull Splitter, Critical Strikes, Armor Impact, Skill Shot, Daze, Arrow Retrieval, Explosive Shot, Trick Shot, Super Shotgun, Impale, Crush, Cripple, Spear Mastery, Momentum, Berserk, Disarm (with anti-theft PDC protection), Call of the Wild (summon cap, lifetime, quit cleanup), Beast Lore, Roll, Dodge |
 | `crafting` | Repair, Salvage, Smelting, Alchemy, and Chimaera Wing | Iron Block repair, Gold Block salvage, Custom Model Data protection, Arcane Forging/Salvage, Copper/Spear inference, persistent `TileState` PDC furnace/brewing-stand ownership, Fuel Efficiency, Second Smelt, Understanding the Art (smelting XP boost), Flux Mining, Catalysis, native Paper 26.3 `BrewingRecipe` Concoctions, Chimaera Wing |
@@ -35,10 +35,9 @@ All **6 modules** can be individually toggled under `modules:` in `config.yml`:
 - **Perks, Milestone Commands & Hardcore Mode:** Permission-tiered XP/cooldown/duration/lucky perks (`PerksService`),
   configurable `level_up_commands.yml` with multi-level & power-level triggers, and opt-in Hardcore death stat loss &
   PvP Vampirism with WorldGuard `opus-hardcore` region support.
-- **Paper Brigadier & Interactive GUIs:** Commands register via `LifecycleEvents.COMMANDS`; `/skills`, `/<skill> gui`,
-  `/mctop gui`, and `/party gui` open safe `MenuWindow` inventories.
-- **Bilingual MiniMessage Locales:** Built-in Korean (`messages_ko.yml`) and English (`messages_en.yml`) templates with
-  automated key-parity verification in CI tests.
+- **Paper Brigadier, Interactive GUIs & Dialogs:** Commands register via `LifecycleEvents.COMMANDS`; `/opus`, `/skills`, `/<skill>`, `/mctop`, `/mccooldown`, `/inspect`, `/mcrank`, `/mmoinfo`, `/mmohud`, and `/party` integrate `MenuWindow` inventories, Paper 26.3 `Dialog` forms/confirmations, live `BossBar` timers, and `ActionBar` feedback.
+- **Bilingual MiniMessage Locales:** Built-in Korean (`locales/ko_kr.yml`) and English (`locales/en_us.yml`)
+  templates with automated key-parity verification in CI tests.
 
 ## Building & Testing
 

@@ -1,7 +1,9 @@
 package opus.modules.crafting
 
+import net.kyori.adventure.bossbar.BossBar
 import opus.core.OpusContext
 import opus.core.module.OpusModule
+import opus.core.scheduler.WarmupRunner
 import opus.core.text.TextFormatter
 import opus.events.OpusRepairEvent
 import opus.events.OpusSalvageEvent
@@ -110,7 +112,6 @@ class CraftingListener(
 
     private val containerOwnerKey = NamespacedKey(context.plugin, "container_owner")
     private val chimaeraCooldowns = ConcurrentHashMap<UUID, Long>()
-    private val channelingChimaera = ConcurrentHashMap.newKeySet<UUID>()
 
     private fun setBlockOwner(block: Block, uuid: UUID) {
         val state = block.state as? TileState ?: return
@@ -484,6 +485,7 @@ class CraftingListener(
         val concRank = context.ranks.getRank(state, SubSkillType.ALCHEMY_CONCOCTIONS)
         if (concRank < reqRank) {
             event.isCancelled = true
+            context.locale.sendActionBar(player, "gameplay.alchemy-need-rank", "rank" to reqRank)
             return
         }
 
@@ -509,11 +511,9 @@ class CraftingListener(
     }
 
     private fun tryChimaeraWing(player: Player, item: ItemStack) {
-        if (!channelingChimaera.add(player.uniqueId)) return
         val now = System.currentTimeMillis()
         val cdUntil = chimaeraCooldowns[player.uniqueId] ?: 0L
         if (now < cdUntil && !player.hasPermission("opus.bypass.cooldown")) {
-            channelingChimaera.remove(player.uniqueId)
             context.locale.sendActionBar(
                 player,
                 "general.cooldown-active",
@@ -523,28 +523,24 @@ class CraftingListener(
         }
         val dest = player.respawnLocation
         if (dest == null) {
-            channelingChimaera.remove(player.uniqueId)
             context.locale.sendActionBar(player, "gameplay.chimaera-no-bed")
             return
         }
 
         val warmupSec = context.config.chimaeraWarmupSeconds
-        val startLoc = player.location.clone()
-        val startHp = player.health
-        context.locale.sendActionBar(player, "gameplay.chimaera-channeling", "seconds" to warmupSec)
-
-        context.scheduler.runForEntityDelayed(player, warmupSec * 20L) {
-            channelingChimaera.remove(player.uniqueId)
-            if (!player.isOnline) return@runForEntityDelayed
-            if (player.location.world != startLoc.world ||
-                player.location.distanceSquared(startLoc) > 1.0 ||
-                player.health < startHp
-            ) {
-                context.locale.sendActionBar(player, "gameplay.chimaera-cancelled")
-                return@runForEntityDelayed
-            }
+        WarmupRunner.start(
+            context = context,
+            player = player,
+            channel = "chimaera_warmup",
+            warmupSeconds = warmupSec,
+            cancelOnDamage = true,
+            barColor = BossBar.Color.GREEN,
+            barTitleKey = "hud.chimaera-warmup-bossbar",
+            actionBarKey = "gameplay.chimaera-channeling",
+            cancelledKey = "gameplay.chimaera-cancelled",
+        ) {
             val cost = context.config.chimaeraFeatherCost
-            if (cost > 0 && !consumeMaterial(player, Material.FEATHER, cost)) return@runForEntityDelayed
+            if (cost > 0 && !consumeMaterial(player, Material.FEATHER, cost)) return@start
 
             chimaeraCooldowns[player.uniqueId] =
                 System.currentTimeMillis() + context.config.chimaeraCooldownSeconds * 1000L

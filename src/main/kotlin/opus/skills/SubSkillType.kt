@@ -183,7 +183,7 @@ enum class SubSkillType(
     val permissionNode: String
         get() = "opus.ability.${parent.key}.${name.removePrefix("${parent.name}_").lowercase()}"
 
-    fun displayName(language: String): String = if (language.equals("ko", ignoreCase = true)) koName else enName
+    fun displayName(language: String): String = if (language.startsWith("ko", ignoreCase = true)) koName else enName
 
     companion object {
         private val byParent: Map<SkillType, List<SubSkillType>> = entries.groupBy { it.parent }

@@ -2,6 +2,7 @@ package opus.modules.gathering
 
 import opus.core.OpusContext
 import opus.core.module.OpusModule
+import opus.core.text.TextFormatter
 import opus.events.XpGainReason
 import opus.skills.SkillType
 import opus.skills.SubSkillType
@@ -218,7 +219,10 @@ class GatheringListener(
                         context.skillsConfig.maxBonusLevel("mining.mother-lode", context.config.retroMode, 1000, 10000)
                     val maxChance = context.skillsConfig.double("mining.mother-lode.chance-max", 50.0)
                     val chance = context.probability.linearChancePercent(level, maxLvl, maxChance, player)
-                    if (context.probability.rollPercent(chance)) multiplier = 3
+                    if (context.probability.rollPercent(chance)) {
+                        multiplier = 3
+                        context.locale.sendActionBar(player, "gameplay.mining-mother-lode")
+                    }
                 }
                 if (superActive && context.skillsConfig.boolean("mining.super-breaker.allow-triple-drops", true)) {
                     multiplier = maxOf(multiplier, 3)
@@ -268,7 +272,15 @@ class GatheringListener(
 
         val ability = SuperAbilityType.SUPER_BREAKER
         val cd = state.getCooldownRemainingMillis(ability)
-        if (cd > 0L && !player.hasPermission("opus.bypass.cooldown")) return false
+        if (cd > 0L && !player.hasPermission("opus.bypass.cooldown")) {
+            context.locale.sendActionBar(
+                player,
+                "skill.ability-cooldown",
+                "ability" to ability.displayName(context.config.language),
+                "time" to TextFormatter.formatDuration(cd),
+            )
+            return false
+        }
 
         targetBlock.type = Material.AIR
         val tnt = targetBlock.world.spawn(targetBlock.location.add(0.5, 0.5, 0.5), TNTPrimed::class.java)
@@ -373,6 +385,7 @@ class GatheringListener(
                 )
             ) {
                 multiplier = 3
+                context.locale.sendActionBar(player, "gameplay.woodcutting-clean-cuts")
             }
         }
         if (multiplier > 1) {
@@ -429,6 +442,9 @@ class GatheringListener(
             }
         }
         context.progression.awardXp(player, SkillType.WOODCUTTING, totalXp, XpGainReason.GATHERING)
+        if (logs.size > 1) {
+            context.locale.sendActionBar(player, "gameplay.woodcutting-tree-feller", "count" to logs.size)
+        }
     }
 
     private fun handleHerbalism(player: Player, block: Block, tool: ItemStack, isPlaced: Boolean) {
@@ -476,6 +492,7 @@ class GatheringListener(
                 )
             ) {
                 multiplier = 3
+                context.locale.sendActionBar(player, "gameplay.herbalism-verdant-bounty")
             }
         }
         if (greenTerra) {
@@ -560,6 +577,7 @@ class GatheringListener(
                 )
             ) {
                 block.type = Material.MYCELIUM
+                context.locale.sendActionBar(player, "gameplay.herbalism-shroom-thumb")
             }
             item.amount = (item.amount - 1).coerceAtLeast(0)
             return true
@@ -586,6 +604,7 @@ class GatheringListener(
             else -> Material.EMERALD
         }
         block.world.dropItemNaturally(block.location.add(0.5, 0.5, 0.5), ItemStack(drop, 1))
+        context.locale.sendActionBar(player, "gameplay.herbalism-hylian-luck", "item" to drop.name)
     }
 
     private fun handleExcavation(player: Player, block: Block, isPlaced: Boolean) {

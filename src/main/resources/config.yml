@@ -1,5 +1,6 @@
 # Opus Configuration (Modern Paper 26.3 RPG)
-language: ko
+# Built-in locales: ko_kr, en_us (or any custom locales/<lang>.yml)
+language: ko_kr
 
 storage:
   # Supported: sqlite, mysql, mariadb
@@ -73,7 +74,7 @@ hud:
   actionbar-notifications: true
   mob-healthbar:
     enabled: true
-    # HEARTS, BAR, DISABLED
+    # HEARTS, BAR, BOSSBAR, DISABLED
     style: HEARTS
     duration-seconds: 3
   scoreboard:

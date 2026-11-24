@@ -5,6 +5,7 @@ import io.papermc.paper.command.brigadier.Commands
 import io.papermc.paper.event.player.AsyncChatEvent
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import opus.core.OpusContext
 import opus.core.command.CommandHelper
@@ -15,6 +16,7 @@ import opus.core.gui.MenuItems
 import opus.core.gui.MenuWindow
 import opus.core.module.OpusModule
 import opus.core.player.ChatChannelMode
+import opus.core.scheduler.WarmupRunner
 import opus.core.text.TextFormatter
 import opus.modules.combat.PartyRelationHook
 import opus.skills.PartyXpShareHook
@@ -359,12 +361,17 @@ class PartyService(
         val leader = Bukkit.getPlayer(target.leaderUuid)
         if (leader != null) {
             context.locale.send(leader, "party.ally-invite-received", "party" to sender.name)
+            context.locale.sendActionBar(leader, "party.ally-invite-received", "party" to sender.name)
         } else {
             for (online in target.onlinePlayers()) {
                 context.locale.send(online, "party.ally-invite-received", "party" to sender.name)
+                context.locale.sendActionBar(online, "party.ally-invite-received", "party" to sender.name)
             }
         }
     }
+
+    fun peekAllyInvite(target: Party): Party? =
+        pendingAllyInvites[target.id]?.let { partiesById[it] }
 
     fun acceptAllyInvite(target: Party): Party? {
         val senderId = pendingAllyInvites.remove(target.id) ?: return null
@@ -419,6 +426,9 @@ class PartyService(
         pendingInvites[target.uniqueId] = party.id
     }
 
+    fun peekInvite(player: Player): Party? =
+        pendingInvites[player.uniqueId]?.let { partiesById[it] }
+
     fun consumeInvite(player: Player): Party? {
         val id = pendingInvites.remove(player.uniqueId) ?: return null
         return partiesById[id]
@@ -453,6 +463,12 @@ class PartyService(
                 saveParty(party)
                 for (member in party.onlinePlayers()) {
                     context.locale.send(member, "party.level-up", "party" to party.name, "level" to party.level)
+                    context.locale.sendActionBar(
+                        member,
+                        "party.level-up",
+                        "party" to party.name,
+                        "level" to party.level
+                    )
                 }
             }
         }
@@ -535,30 +551,33 @@ class PartyService(
     }
 
     fun sendPartyChat(sender: Player, party: Party, message: String) {
-        val comp = TextFormatter.format(
-            "<dark_gray>[<aqua>${party.name}</aqua>]</dark_gray> <white>${sender.name}</white><gray>:</gray> <aqua>${
-                TextFormatter.escape(
-                    message
-                )
-            }</aqua>"
+        val comp = context.locale.component(
+            "party.chat-format",
+            mapOf(
+                "party" to party.name,
+                "player" to sender.name,
+                "message" to TextFormatter.escape(message),
+            ),
         )
         for (member in party.onlinePlayers()) {
             member.sendMessage(comp)
         }
         for (online in Bukkit.getOnlinePlayers()) {
             if (online !in party.onlinePlayers() && context.players.getCached(online).chatSpy) {
-                online.sendMessage(TextFormatter.format("<dark_gray>[Spy:${party.name}]</dark_gray> ").append(comp))
+                online.sendMessage(
+                    context.locale.component("party.chat-spy-prefix", mapOf("party" to party.name)).append(comp)
+                )
             }
         }
     }
 
     fun sendAdminChat(sender: Player, message: String) {
-        val comp = TextFormatter.format(
-            "<dark_gray>[<red>Admin</red>]</dark_gray> <white>${sender.name}</white><gray>:</gray> <red>${
-                TextFormatter.escape(
-                    message
-                )
-            }</red>"
+        val comp = context.locale.component(
+            "party.admin-chat-format",
+            mapOf(
+                "player" to sender.name,
+                "message" to TextFormatter.escape(message),
+            ),
         )
         for (online in Bukkit.getOnlinePlayers()) {
             if (online.hasPermission("opus.chat.adminchat") || online.hasPermission("opus.admin")) {
@@ -621,7 +640,9 @@ class PartyService(
             val expiresAt = now + partyConfig.teleportRequestTimeoutSec * 1000L
             ptpRequests[target.uniqueId] = player.uniqueId to expiresAt
             context.locale.send(player, "party.ptp-request-sent", "player" to target.name)
+            context.locale.sendActionBar(player, "party.ptp-request-sent", "player" to target.name)
             context.locale.send(target, "party.ptp-request-received", "player" to player.name)
+            context.locale.sendActionBar(target, "party.ptp-request-received", "player" to player.name)
             return
         }
 
@@ -651,48 +672,141 @@ class PartyService(
 
     private fun executePartyTeleport(player: Player, target: Player) {
         val warmup = if (player.hasPermission("opus.bypass.partyteleport")) 0L else partyConfig.teleportWarmupSec
-        val startLoc = player.location.clone()
-        val startHp = player.health
-        if (warmup > 0L) {
-            context.locale.send(player, "party.ptp-starting", "player" to target.name, "seconds" to warmup)
-        }
-        context.scheduler.runForEntityDelayed(player, (warmup * 20L).coerceAtLeast(1L)) {
-            if (!player.isOnline || !target.isOnline) return@runForEntityDelayed
-            if (warmup > 0L && (player.location.world != startLoc.world ||
-                        player.location.distanceSquared(startLoc) > 1.0 ||
-                        (partyConfig.teleportCancelOnDamage && player.health < startHp))
-            ) {
-                context.locale.send(player, "party.ptp-cancelled")
-                return@runForEntityDelayed
-            }
-            ptpCooldowns[player.uniqueId] = System.currentTimeMillis() + partyConfig.teleportCooldownSec * 1000L
-            player.teleportAsync(target.location).thenAccept { ok ->
-                if (ok) {
-                    context.locale.send(player, "party.ptp-success", "player" to target.name)
+        val completeTeleport = {
+            if (player.isOnline && target.isOnline) {
+                ptpCooldowns[player.uniqueId] = System.currentTimeMillis() + partyConfig.teleportCooldownSec * 1000L
+                player.teleportAsync(target.location).thenAccept { ok ->
+                    if (ok) {
+                        context.locale.send(player, "party.ptp-success", "player" to target.name)
+                        context.locale.sendActionBar(player, "party.ptp-success", "player" to target.name)
+                    }
                 }
             }
         }
+        if (warmup <= 0L) {
+            completeTeleport()
+            return
+        }
+        WarmupRunner.start(
+            context = context,
+            player = player,
+            channel = "ptp_warmup",
+            warmupSeconds = warmup,
+            cancelOnDamage = partyConfig.teleportCancelOnDamage,
+            barColor = BossBar.Color.BLUE,
+            barTitleKey = "hud.ptp-warmup-bossbar",
+            actionBarKey = "party.ptp-starting",
+            cancelledKey = "party.ptp-cancelled",
+            placeholders = mapOf("player" to target.name),
+            onComplete = completeTeleport,
+        )
+    }
+
+    fun openPartyPortal(player: Player) {
+        val party = getPlayerParty(player.uniqueId)
+        if (party != null) {
+            openPartyGui(player, party)
+        } else {
+            PartyDialogs.openLobbyDialog(context, this, player)
+        }
+    }
+
+    fun openPtpPickerGui(player: Player, party: Party) {
+        val title = context.locale.component("gui.ptp-title", mapOf("party" to party.name))
+        val menu = MenuWindow(title, 4)
+        menu.fillBorder(MenuItems.item(Material.GRAY_STAINED_GLASS_PANE, " "))
+
+        val others = party.onlinePlayers().filter { it != player }
+        val slots = listOf(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25)
+        others.take(slots.size).forEachIndexed { idx, member ->
+            val sameWorld = member.world == player.world
+            val dist = if (sameWorld) "${member.location.distance(player.location).toInt()}m" else member.world.name
+            menu.set(
+                slots[idx],
+                MenuItems.item(
+                    Material.ENDER_PEARL,
+                    "<aqua><bold>${member.name}</bold></aqua>",
+                    listOf(
+                        context.locale.raw("gui.ptp-distance", "dist" to dist),
+                        context.locale.raw("gui.ptp-click-teleport"),
+                    ),
+                ),
+            ) { click ->
+                click.player.closeInventory()
+                tryPartyTeleport(click.player, member)
+            }
+        }
+
+        val receiving = !ptpDisabled.contains(player.uniqueId)
+        menu.set(
+            29,
+            MenuItems.item(
+                if (receiving) Material.LIME_DYE else Material.GRAY_DYE,
+                context.locale.raw(if (receiving) "gui.ptp-receive-on" else "gui.ptp-receive-off"),
+            ),
+        ) { click ->
+            val enabled = togglePtp(click.player)
+            context.locale.sendActionBar(
+                click.player,
+                "party.ptp-toggle-changed",
+                "state" to if (enabled) "ON" else "OFF",
+            )
+            openPtpPickerGui(click.player, party)
+        }
+
+        val autoAccept = ptpAcceptAny.contains(player.uniqueId)
+        menu.set(
+            30,
+            MenuItems.item(
+                if (autoAccept) Material.LIGHT_BLUE_DYE else Material.GRAY_DYE,
+                context.locale.raw(if (autoAccept) "gui.ptp-auto-on" else "gui.ptp-auto-off"),
+            ),
+        ) { click ->
+            val on = togglePtpAcceptAny(click.player)
+            context.locale.sendActionBar(
+                click.player,
+                "party.ptp-acceptany-changed",
+                "state" to if (on) "ON" else "OFF",
+            )
+            openPtpPickerGui(click.player, party)
+        }
+
+        menu.set(31, MenuItems.item(Material.ARROW, context.locale.raw("gui.back"))) {
+            openPartyGui(it.player, party)
+        }
+        menu.set(33, MenuItems.item(Material.BARRIER, context.locale.raw("gui.close"))) {
+            it.player.closeInventory()
+        }
+        menu.open(player)
     }
 
     fun openPartyGui(player: Player, party: Party) {
         val title = context.locale.component("gui.party-title", mapOf("party" to party.name))
-        val menu = MenuWindow(title, 4)
+        val menu = MenuWindow(title, 5)
         menu.fillBorder(MenuItems.item(Material.GRAY_STAINED_GLASS_PANE, " "))
 
         val leaderName = Bukkit.getOfflinePlayer(party.leaderUuid).name ?: party.leaderUuid.toString().take(8)
+        val needed = party.xpNeeded(partyConfig.baseXp, partyConfig.xpPerLevel)
         val lore = mutableListOf(
-            "<gray>Level:</gray> <yellow>Lv.${party.level}</yellow> <dark_gray>(${party.xp.toInt()}/${
-                party.xpNeeded(partyConfig.baseXp, partyConfig.xpPerLevel).toInt()
-            })</dark_gray>",
-            "<gray>Leader:</gray> <gold>$leaderName</gold>",
-            "<gray>XP Share:</gray> <aqua>${party.expShareMode}</aqua>",
-            "<gray>Item Share:</gray> <aqua>${party.itemShareMode}</aqua>",
-            "<gray>Members:</gray> <white>${party.members.size}/${partyConfig.maxMembers}</white>",
+            context.locale.raw(
+                "gui.party-level",
+                "level" to party.level,
+                "xp" to party.xp.toInt(),
+                "needed" to needed.toInt(),
+            ),
+            TextFormatter.progressBar(party.xp, needed, 12),
+            context.locale.raw("gui.party-leader", "leader" to leaderName),
+            context.locale.raw("gui.party-xpshare", "mode" to party.expShareMode),
+            context.locale.raw("gui.party-itemshare", "mode" to party.itemShareMode),
+            context.locale.raw("gui.party-members", "count" to party.members.size, "max" to partyConfig.maxMembers),
         )
         party.allyPartyId?.let { allyId ->
             partiesById[allyId]?.let { ally ->
-                lore += "<gray>Alliance:</gray> <light_purple>${ally.name}</light_purple>"
+                lore += context.locale.raw("gui.party-alliance", "ally" to ally.name)
             }
+        }
+        party.motd?.let { motd ->
+            lore += context.locale.raw("party.info-motd", "motd" to motd)
         }
         menu.set(
             4,
@@ -708,16 +822,90 @@ class PartyService(
             val off = Bukkit.getOfflinePlayer(rec.playerUuid)
             val online = off.isOnline
             val name = off.name ?: rec.playerUuid.toString().take(8)
+            val memberLore = mutableListOf(context.locale.raw("gui.party-member-role", "role" to rec.role))
+            if (rec.playerUuid != player.uniqueId) {
+                memberLore += context.locale.raw("gui.party-member-click")
+            }
             menu.set(
                 slots[idx],
                 MenuItems.item(
                     if (online) Material.PLAYER_HEAD else Material.SKELETON_SKULL,
                     "${if (online) "<green>" else "<gray>"}$name",
-                    listOf("<gray>Role:</gray> <gold>${rec.role}</gold>"),
+                    memberLore,
                 ),
-            )
+            ) { click ->
+                if (rec.playerUuid != click.player.uniqueId) {
+                    PartyDialogs.openMemberActionsDialog(context, this, click.player, party, rec.playerUuid, name)
+                }
+            }
         }
-        menu.set(31, MenuItems.item(Material.BARRIER, context.locale.raw("gui.close"))) { it.player.closeInventory() }
+
+        // Interactive action bar in bottom row
+        menu.set(
+            37,
+            MenuItems.item(Material.WRITABLE_BOOK, context.locale.raw("gui.party-btn-invite")),
+        ) { click ->
+            PartyDialogs.openInviteDialog(context, this, click.player, party)
+        }
+
+        if (party.isLeaderOrOfficer(player.uniqueId)) {
+            menu.set(
+                38,
+                MenuItems.item(Material.COMPARATOR, context.locale.raw("gui.party-btn-settings")),
+            ) { click ->
+                PartyDialogs.openSettingsDialog(context, this, click.player, party)
+            }
+        }
+
+        val chatState = context.players.getCached(player)
+        val inPartyChat = chatState.chatMode == ChatChannelMode.PARTY
+        menu.set(
+            39,
+            MenuItems.item(
+                Material.OAK_SIGN,
+                context.locale.raw(if (inPartyChat) "gui.party-btn-chat-on" else "gui.party-btn-chat-off"),
+            ),
+        ) { click ->
+            if (!requireUnlocked(click.player, party, PartyFeature.CHAT)) return@set
+            chatState.chatMode =
+                if (chatState.chatMode == ChatChannelMode.PARTY) ChatChannelMode.PUBLIC else ChatChannelMode.PARTY
+            chatState.markDirty()
+            val stateLabel = if (chatState.chatMode == ChatChannelMode.PARTY) "ON" else "OFF"
+            context.locale.sendActionBar(click.player, "party.chat-toggled", "state" to stateLabel)
+            openPartyGui(click.player, party)
+        }
+
+        menu.set(
+            40,
+            MenuItems.item(Material.ENDER_PEARL, context.locale.raw("gui.party-btn-ptp")),
+        ) { click ->
+            openPtpPickerGui(click.player, party)
+        }
+
+        if (party.leaderUuid == player.uniqueId) {
+            menu.set(
+                41,
+                MenuItems.item(Material.NETHER_STAR, context.locale.raw("gui.party-btn-ally")),
+            ) { click ->
+                PartyDialogs.openAllianceDialog(context, this, click.player, party)
+            }
+        }
+
+        menu.set(
+            42,
+            MenuItems.item(
+                if (party.leaderUuid == player.uniqueId) Material.TNT else Material.RED_DYE,
+                context.locale.raw(
+                    if (party.leaderUuid == player.uniqueId) "gui.party-btn-disband" else "gui.party-btn-leave"
+                ),
+            ),
+        ) { click ->
+            PartyDialogs.openLeaveConfirmDialog(context, this, click.player, party)
+        }
+
+        menu.set(44, MenuItems.item(Material.BARRIER, context.locale.raw("gui.close"))) {
+            it.player.closeInventory()
+        }
         menu.open(player)
     }
 }
@@ -827,6 +1015,11 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                         "party.chat-toggled",
                         "state" to if (state.chatMode == ChatChannelMode.PARTY) "ON" else "OFF"
                     )
+                    context.locale.sendActionBar(
+                        player,
+                        "party.chat-toggled",
+                        "state" to if (state.chatMode == ChatChannelMode.PARTY) "ON" else "OFF"
+                    )
                     Command.SINGLE_SUCCESS
                 })
             },
@@ -890,7 +1083,16 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     executor = { ctx, args ->
                         val player = CommandHelper.requirePlayer(context, ctx.source.sender)
                             ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        val arg = args.firstOrNull() ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        val arg = args.firstOrNull()
+                        if (arg == null) {
+                            val party = service.getPlayerParty(player.uniqueId)
+                            if (party == null) {
+                                context.locale.send(player, "party.not-in-party")
+                            } else {
+                                service.openPtpPickerGui(player, party)
+                            }
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
                         when (arg.lowercase()) {
                             "accept" -> service.acceptPtpRequest(player)
                             "toggle" -> {
@@ -900,11 +1102,21 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                                     "party.ptp-toggle-changed",
                                     "state" to if (enabled) "ON" else "OFF",
                                 )
+                                context.locale.sendActionBar(
+                                    player,
+                                    "party.ptp-toggle-changed",
+                                    "state" to if (enabled) "ON" else "OFF",
+                                )
                             }
 
                             "acceptany" -> {
                                 val on = service.togglePtpAcceptAny(player)
                                 context.locale.send(
+                                    player,
+                                    "party.ptp-acceptany-changed",
+                                    "state" to if (on) "ON" else "OFF",
+                                )
+                                context.locale.sendActionBar(
                                     player,
                                     "party.ptp-acceptany-changed",
                                     "state" to if (on) "ON" else "OFF",
@@ -938,16 +1150,22 @@ class PartyModule(private val context: OpusContext) : OpusModule {
     }
 
     private fun handlePartyCommand(player: Player, args: Array<String>) {
-        val sub = args.firstOrNull()?.lowercase() ?: "info"
         val current = service.getPlayerParty(player.uniqueId)
-
-        when (sub) {
+        if (args.isEmpty()) {
+            service.openPartyPortal(player)
+            return
+        }
+        when (val sub = args[0].lowercase()) {
             "create" -> {
                 if (current != null) {
                     context.locale.send(player, "party.already-in-party", "party" to current.name)
                     return
                 }
-                val name = args.getOrNull(1) ?: return
+                val name = args.getOrNull(1)
+                if (name == null) {
+                    PartyDialogs.openCreatePartyDialog(context, service, player)
+                    return
+                }
                 val pw = args.getOrNull(2)
                 if (!service.createParty(player, name, pw)) {
                     context.locale.send(player, "party.already-exists", "party" to name)
@@ -961,7 +1179,11 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     context.locale.send(player, "party.already-in-party", "party" to current.name)
                     return
                 }
-                val nameOrPlayer = args.getOrNull(1) ?: return
+                val nameOrPlayer = args.getOrNull(1)
+                if (nameOrPlayer == null) {
+                    PartyDialogs.openJoinPartyDialog(context, service, player)
+                    return
+                }
                 val targetParty = service.findPartyByName(nameOrPlayer)
                     ?: Bukkit.getPlayerExact(nameOrPlayer)?.let { service.getPlayerParty(it.uniqueId) }
                 if (targetParty == null) {
@@ -1000,7 +1222,11 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     context.locale.send(player, "party.not-in-party")
                     return
                 }
-                val targetName = args.getOrNull(1) ?: return
+                val targetName = args.getOrNull(1)
+                if (targetName == null) {
+                    PartyDialogs.openInviteDialog(context, service, player, current)
+                    return
+                }
                 val target = Bukkit.getPlayerExact(targetName)
                 if (target == null) {
                     context.locale.send(player, "general.player-not-found", "player" to targetName)
@@ -1009,6 +1235,12 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                 service.invitePlayer(target, current)
                 context.locale.send(player, "party.invited", "player" to target.name)
                 context.locale.send(target, "party.invite-received", "player" to player.name, "party" to current.name)
+                context.locale.sendActionBar(
+                    target,
+                    "party.invite-received",
+                    "player" to player.name,
+                    "party" to current.name
+                )
             }
 
             "leave", "quit" -> {
@@ -1030,7 +1262,11 @@ class PartyModule(private val context: OpusContext) : OpusModule {
                     context.locale.send(player, "party.no-leader-permission")
                     return
                 }
-                service.disbandParty(current)
+                if (args.getOrNull(1).equals("confirm", ignoreCase = true)) {
+                    service.disbandParty(current)
+                } else {
+                    PartyDialogs.openLeaveConfirmDialog(context, service, player, current)
+                }
             }
 
             "kick" -> {

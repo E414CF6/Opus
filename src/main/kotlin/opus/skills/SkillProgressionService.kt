@@ -1,5 +1,7 @@
 package opus.skills
 
+import net.kyori.adventure.bossbar.BossBar
+import net.kyori.adventure.text.Component
 import opus.core.OpusContext
 import opus.core.player.OpusPlayerState
 import opus.core.text.TextFormatter
@@ -18,6 +20,20 @@ interface HudFeedbackHook {
     fun onXpGain(player: Player, state: OpusPlayerState, skill: SkillType, gained: Double, needed: Int)
     fun onLevelUp(player: Player, state: OpusPlayerState, skill: SkillType, newLevel: Int)
     fun onActionBarNotice(player: Player, messageKey: String, vararg placeholders: Pair<String, Any?>)
+    fun onAbilityActivated(player: Player, ability: SuperAbilityType, abilityName: String, durationSeconds: Int) {}
+    fun onAbilityExpired(player: Player, ability: SuperAbilityType) {}
+    fun showChannelBossBar(
+        player: Player,
+        channel: String,
+        title: Component,
+        color: BossBar.Color,
+        progress: Float,
+        durationTicks: Long,
+        overlay: BossBar.Overlay = BossBar.Overlay.PROGRESS,
+    ) {
+    }
+
+    fun hideChannelBossBar(player: Player, channel: String) {}
 }
 
 /**
@@ -150,10 +166,17 @@ class SkillProgressionService(private val context: OpusContext) {
             val oldRank = context.ranks.getRank(oldLevel, sub)
             val newRank = context.ranks.getRank(newLevel, sub)
             if (newRank > oldRank) {
+                val subName = sub.displayName(lang)
                 context.locale.send(
                     player,
                     "skill.subskill-unlocked",
-                    "subskill" to sub.displayName(lang),
+                    "subskill" to subName,
+                    "rank" to newRank,
+                )
+                context.locale.sendActionBar(
+                    player,
+                    "skill.subskill-unlocked",
+                    "subskill" to subName,
                     "rank" to newRank,
                 )
             }
@@ -284,6 +307,7 @@ class SkillProgressionService(private val context: OpusContext) {
             "ability" to abilityName,
             "duration" to event.durationSeconds,
         )
+        context.getService<HudFeedbackHook>()?.onAbilityActivated(player, ability, abilityName, event.durationSeconds)
         player.playSound(player.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.4f)
 
         // Alert nearby players
@@ -302,6 +326,7 @@ class SkillProgressionService(private val context: OpusContext) {
             if (state.isAbilityActive(ability)) {
                 state.deactivateAbility(ability)
             }
+            context.getService<HudFeedbackHook>()?.onAbilityExpired(player, ability)
             Bukkit.getPluginManager().callEvent(OpusSuperAbilityExpireEvent(player, ability))
             if (player.isOnline) {
                 sendAbilityNotice(player, state, "skill.ability-expired", "ability" to abilityName)

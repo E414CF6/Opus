@@ -47,7 +47,7 @@ enum class SkillType(
     val permissionNode: String get() = "opus.skill.$key"
 
     fun displayName(language: String): String =
-        if (language.equals("ko", ignoreCase = true)) koName else enName
+        if (language.startsWith("ko", ignoreCase = true)) koName else enName
 
     fun parentSkills(): List<SkillType> = when (this) {
         SALVAGE -> listOf(REPAIR, FISHING)

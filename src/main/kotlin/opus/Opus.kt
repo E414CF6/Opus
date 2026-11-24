@@ -10,9 +10,11 @@ import opus.integration.WorldGuardHook
 import opus.modules.combat.CombatModule
 import opus.modules.crafting.CraftingModule
 import opus.modules.gathering.GatheringModule
+import opus.modules.hud.HudDialogs
 import opus.modules.hud.HudModule
 import opus.modules.party.PartyModule
 import opus.modules.skills.SkillCoreModule
+import opus.modules.skills.SkillDialogs
 import opus.modules.skills.SkillGui
 import org.bukkit.Bukkit
 import org.bukkit.plugin.ServicePriority
@@ -76,9 +78,13 @@ class Opus : JavaPlugin() {
         // Register Brigadier commands via Paper LifecycleEvents
         lifecycleManager.registerEventHandler(LifecycleEvents.COMMANDS) { event ->
             val registrar = event.registrar()
-            CommandHelper.registerRootCommand(registrar, ctx) { player ->
-                SkillGui.openHub(ctx, player, ctx.players.getCached(player))
-            }
+            CommandHelper.registerRootCommand(
+                registrar = registrar,
+                context = ctx,
+                onGui = { player -> SkillGui.openHub(ctx, player, ctx.players.getCached(player)) },
+                onSettings = { player -> HudDialogs.openSettingsDialog(ctx, player) },
+                onAdmin = { player -> SkillDialogs.openAdminDialog(ctx, player) },
+            )
             ctx.modules.registerAllCommands(registrar)
         }
 

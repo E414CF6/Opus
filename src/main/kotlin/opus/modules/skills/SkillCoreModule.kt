@@ -9,6 +9,7 @@ import opus.core.player.OpusPlayerState
 import opus.core.text.TextFormatter
 import opus.events.XpGainReason
 import opus.modules.hud.HudService
+import opus.skills.HudFeedbackHook
 import opus.skills.SkillType
 import opus.skills.SuperAbilityType
 import org.bukkit.Bukkit
@@ -68,12 +69,14 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                         val state = context.players.getCached(player)
                         if (args.firstOrNull().equals("gui", ignoreCase = true)) {
                             SkillGui.openHub(context, player, state)
+                        } else if (args.firstOrNull().equals("dialog", ignoreCase = true)) {
+                            SkillDialogs.openGuideDialog(context, player, state)
                         } else {
                             sendStatsText(sender, state, null)
                         }
                         Command.SINGLE_SUCCESS
                     },
-                    tabSuggester = { _, _ -> listOf("gui", "text") },
+                    tabSuggester = { _, _ -> listOf("gui", "dialog", "text") },
                 )
             },
             "skills",
@@ -90,12 +93,22 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     "opus.command",
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
-                        val targetName = args.firstOrNull()
+                        val useText = args.any { it.equals("text", ignoreCase = true) }
+                        val targetName = args.firstOrNull {
+                            !it.equals("text", ignoreCase = true) && !it.equals(
+                                "gui",
+                                ignoreCase = true
+                            )
+                        }
                         if (targetName == null) {
                             val player = CommandHelper.requirePlayer(context, sender)
                                 ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
                             val state = context.players.getCached(player)
-                            sendStatsText(sender, state, null)
+                            if (useText) {
+                                sendStatsText(sender, state, null)
+                            } else {
+                                SkillGui.openHub(context, player, state)
+                            }
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
                         CommandHelper.dispatchAsync(
@@ -109,6 +122,13 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                             onResult = { (state, rank) ->
                                 if (state == null) {
                                     context.locale.send(sender, "general.player-not-found", "player" to targetName)
+                                } else if (sender is Player && !useText) {
+                                    SkillGui.openHub(
+                                        context,
+                                        sender,
+                                        state,
+                                        readOnlyInspect = state.uuid != sender.uniqueId,
+                                    )
                                 } else {
                                     sendStatsText(sender, state, rank)
                                 }
@@ -120,7 +140,7 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                         if (parts.size <= 1) CommandHelper.suggestOnlinePlayers(
                             sender,
                             parts.lastOrNull() ?: ""
-                        ) else emptyList()
+                        ) else listOf("gui", "text")
                     },
                 )
             },
@@ -133,29 +153,51 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
             registrar,
             context,
             { name ->
-                CommandHelper.simpleArgsCommand(name, "opus.command", executor = { ctx, _ ->
-                    val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                        ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    val state = context.players.getCached(player)
-                    val lang = context.config.language
-                    context.locale.sendRaw(player, "commands.cooldown-header")
-                    val now = System.currentTimeMillis()
-                    for (ability in SuperAbilityType.entries) {
-                        val rem = state.getCooldownRemainingMillis(ability, now)
-                        val stateStr = if (rem <= 0L) {
-                            context.locale.raw("commands.cooldown-ready")
-                        } else {
-                            "<red>${TextFormatter.formatDuration(rem)}</red>"
+                CommandHelper.simpleArgsCommand(
+                    name,
+                    "opus.command",
+                    executor = { ctx, args ->
+                        val player = CommandHelper.requirePlayer(context, ctx.source.sender)
+                            ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        val state = context.players.getCached(player)
+                        when (args.firstOrNull()?.lowercase()) {
+                            "gui" -> {
+                                SkillGui.openCooldowns(context, player, state)
+                                return@simpleArgsCommand Command.SINGLE_SUCCESS
+                            }
+
+                            "text" -> {
+                                val lang = context.config.language
+                                context.locale.sendRaw(player, "commands.cooldown-header")
+                                val now = System.currentTimeMillis()
+                                for (ability in SuperAbilityType.entries) {
+                                    val rem = state.getCooldownRemainingMillis(ability, now)
+                                    val stateStr = if (rem <= 0L) {
+                                        context.locale.raw("commands.cooldown-ready")
+                                    } else {
+                                        context.locale.raw(
+                                            "commands.cooldown-active",
+                                            "time" to TextFormatter.formatDuration(rem)
+                                        )
+                                    }
+                                    context.locale.sendRaw(
+                                        player,
+                                        "commands.cooldown-entry",
+                                        "ability" to ability.displayName(lang),
+                                        "state" to stateStr,
+                                    )
+                                }
+                                return@simpleArgsCommand Command.SINGLE_SUCCESS
+                            }
+
+                            else -> {
+                                SkillDialogs.openCooldownsDialog(context, player, state)
+                                return@simpleArgsCommand Command.SINGLE_SUCCESS
+                            }
                         }
-                        context.locale.sendRaw(
-                            player,
-                            "commands.cooldown-entry",
-                            "ability" to ability.displayName(lang),
-                            "state" to stateStr,
-                        )
-                    }
-                    Command.SINGLE_SUCCESS
-                })
+                    },
+                    tabSuggester = { _, _ -> listOf("dialog", "gui", "text") },
+                )
             },
             "mccooldown",
             "Show active Super Ability cooldowns",
@@ -171,10 +213,10 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                         ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
                     val state = context.players.getCached(player)
                     state.abilityReadyingEnabled = !state.abilityReadyingEnabled
-                    context.locale.send(
-                        player,
-                        if (state.abilityReadyingEnabled) "skill.ability-toggle-on" else "skill.ability-toggle-off",
-                    )
+                    val key =
+                        if (state.abilityReadyingEnabled) "skill.ability-toggle-on" else "skill.ability-toggle-off"
+                    context.locale.send(player, key)
+                    context.locale.sendActionBar(player, key)
                     Command.SINGLE_SUCCESS
                 })
             },
@@ -190,12 +232,22 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     val player = CommandHelper.requirePlayer(context, ctx.source.sender)
                         ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
                     val state = context.players.getCached(player)
+                    val power = state.powerLevel()
+                    val mastered = context.ranks.masteredCount(state)
+                    val total = SkillType.nonChildSkills.size
                     context.locale.send(
                         player,
                         "commands.power-info",
-                        "power" to state.powerLevel(),
-                        "mastered" to context.ranks.masteredCount(state),
-                        "total" to SkillType.nonChildSkills.size,
+                        "power" to power,
+                        "mastered" to mastered,
+                        "total" to total,
+                    )
+                    context.locale.sendActionBar(
+                        player,
+                        "commands.power-info",
+                        "power" to power,
+                        "mastered" to mastered,
+                        "total" to total,
                     )
                     Command.SINGLE_SUCCESS
                 })
@@ -219,15 +271,22 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                             val player = CommandHelper.requirePlayer(context, ctx.source.sender)
                                 ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
                             val state = context.players.getCached(player)
-                            if (args.firstOrNull().equals("gui", ignoreCase = true)) {
-                                SkillGui.openSkillDetail(context, player, state, skill)
-                                return@simpleArgsCommand Command.SINGLE_SUCCESS
+                            when (args.firstOrNull()?.lowercase()) {
+                                "gui" -> {
+                                    SkillGui.openSkillDetail(context, player, state, skill)
+                                    return@simpleArgsCommand Command.SINGLE_SUCCESS
+                                }
+
+                                "dialog" -> {
+                                    SkillDialogs.openSkillGuideDialog(context, player, state, skill)
+                                    return@simpleArgsCommand Command.SINGLE_SUCCESS
+                                }
                             }
                             sendSkillDetailText(player, state, skill)
                             context.getService<HudService>()?.showSkillBoard(player, state, skill)
                             Command.SINGLE_SUCCESS
                         },
-                        tabSuggester = { _, _ -> listOf("gui") },
+                        tabSuggester = { _, _ -> listOf("gui", "dialog") },
                     )
                 },
                 skill.key,
@@ -248,10 +307,11 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                         val sender = ctx.source.sender
                         var skill: SkillType? = null
                         var page = 1
-                        var useGui = false
+                        var useText = false
                         for (arg in args) {
                             when {
-                                arg.equals("gui", ignoreCase = true) -> useGui = true
+                                arg.equals("gui", ignoreCase = true) -> useText = false
+                                arg.equals("text", ignoreCase = true) -> useText = true
                                 arg.toIntOrNull() != null -> page = arg.toInt().coerceAtLeast(1)
                                 else -> {
                                     val matched = SkillType.match(arg)
@@ -273,8 +333,8 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                             sender,
                             asyncWork = { context.playerRepository.readTopSkill(skill, 10, offset) },
                             onResult = { entries ->
-                                if (useGui && sender is Player) {
-                                    SkillGui.openLeaderboard(context, sender, skill, entries)
+                                if (!useText && sender is Player) {
+                                    SkillGui.openLeaderboard(context, sender, skill, entries, page)
                                     return@dispatchAsync
                                 }
                                 val lang = context.config.language
@@ -325,7 +385,8 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     "opus.command",
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
-                        val targetName = args.firstOrNull() ?: sender.name
+                        val useText = args.any { it.equals("text", ignoreCase = true) }
+                        val targetName = args.firstOrNull { !it.equals("text", ignoreCase = true) } ?: sender.name
                         CommandHelper.dispatchAsync(
                             context,
                             sender,
@@ -346,6 +407,10 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                                     return@dispatchAsync
                                 }
                                 val (state, ranks) = res
+                                if (sender is Player && !useText) {
+                                    SkillDialogs.openRankingsDialog(context, sender, state, ranks)
+                                    return@dispatchAsync
+                                }
                                 val lang = context.config.language
                                 context.locale.sendRaw(sender, "commands.rank-header", "player" to state.username)
                                 for (s in SkillType.nonChildSkills) {
@@ -388,7 +453,7 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
                         if (args.size < 3) {
-                            sender.sendMessage(TextFormatter.format("<gray>Usage: /addxp <player> <skill> <amount></gray>"))
+                            context.locale.send(sender, "commands.usage-addxp")
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
                         val target = Bukkit.getPlayerExact(args[0])
@@ -441,7 +506,7 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
                         if (args.size < 3) {
-                            sender.sendMessage(TextFormatter.format("<gray>Usage: /addlevels <player> <skill> <amount></gray>"))
+                            context.locale.send(sender, "commands.usage-addlevels")
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
                         val target = Bukkit.getPlayerExact(args[0])
@@ -495,7 +560,7 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
                         if (args.size < 3) {
-                            sender.sendMessage(TextFormatter.format("<gray>Usage: /mmoedit <player> <skill> <level></gray>"))
+                            context.locale.send(sender, "commands.usage-mmoedit")
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
                         val skill = SkillType.match(args[1])?.takeIf { !it.isChild }
@@ -570,6 +635,7 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                         }
                         context.players.getCached(target).clearAllCooldowns()
                         context.locale.send(sender, "commands.refresh-success", "player" to target.name)
+                        context.locale.sendActionBar(target, "commands.refresh-success", "player" to target.name)
                         Command.SINGLE_SUCCESS
                     },
                     tabSuggester = { sender, parts ->
@@ -594,11 +660,15 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
                         if (args.isEmpty()) {
-                            context.locale.send(
-                                sender,
-                                "commands.xprate-current",
-                                "rate" to context.experienceConfig.globalMultiplier,
-                            )
+                            if (sender is Player) {
+                                SkillDialogs.openXpRateDialog(context, sender)
+                            } else {
+                                context.locale.send(
+                                    sender,
+                                    "commands.xprate-current",
+                                    "rate" to context.experienceConfig.globalMultiplier,
+                                )
+                            }
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
                         if (args[0].equals("reset", ignoreCase = true)) {
@@ -611,6 +681,11 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                                     mapOf("rate" to restored.toString()),
                                 )
                             )
+                            val hud = context.getService<HudFeedbackHook>()
+                            for (online in Bukkit.getOnlinePlayers()) {
+                                hud?.hideChannelBossBar(online, HudService.XP_EVENT_CHANNEL)
+                                context.locale.sendActionBar(online, "commands.xprate-event-reset", "rate" to restored)
+                            }
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
                         val rate = args[0].toDoubleOrNull()
@@ -619,18 +694,7 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
                         val isEvent = args.getOrNull(1)?.equals("true", ignoreCase = true) == true
-                        context.experienceConfig.globalMultiplier = rate
-                        context.experienceConfig.xpEventActive = isEvent
-                        if (isEvent) {
-                            Bukkit.broadcast(
-                                context.locale.prefixedComponent(
-                                    "commands.xprate-event-broadcast",
-                                    mapOf("rate" to rate.toString()),
-                                )
-                            )
-                        } else {
-                            context.locale.send(sender, "commands.xprate-set", "rate" to rate)
-                        }
+                        SkillDialogs.applyXpRate(context, sender, rate, isEvent)
                         Command.SINGLE_SUCCESS
                     },
                     tabSuggester = { _, parts ->
@@ -696,26 +760,39 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     "opus.command",
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
-                        val skillArg = args.firstOrNull()
+                        val useText = args.any { it.equals("text", ignoreCase = true) }
+                        val skillArg = args.firstOrNull { !it.equals("text", ignoreCase = true) }
                         if (skillArg != null) {
                             val skill = SkillType.match(skillArg)
                             if (skill == null) {
                                 context.locale.send(sender, "general.invalid-skill", "skill" to skillArg)
                                 return@simpleArgsCommand Command.SINGLE_SUCCESS
                             }
-                            if (sender is Player) {
+                            if (sender is Player && !useText) {
+                                SkillDialogs.openSkillGuideDialog(
+                                    context,
+                                    sender,
+                                    context.players.getCached(sender),
+                                    skill
+                                )
+                            } else if (sender is Player) {
                                 sendSkillDetailText(sender, context.players.getCached(sender), skill)
                             } else {
-                                sender.sendMessage(
-                                    TextFormatter.format(
-                                        "<aqua>${skill.displayName(context.config.language)}</aqua> <gray>- ${skill.subSkills().size} sub-skills</gray>"
-                                    )
+                                context.locale.sendRaw(
+                                    sender,
+                                    "commands.mmoinfo-console-skill",
+                                    "skill" to context.locale.skillName(skill),
+                                    "count" to skill.subSkills().size,
                                 )
                             }
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
-                        context.locale.sendRaw(sender, "commands.mmoinfo-header")
-                        context.locale.sendRaw(sender, "commands.mmoinfo-summary")
+                        if (sender is Player && !useText) {
+                            SkillDialogs.openGuideDialog(context, sender, context.players.getCached(sender))
+                        } else {
+                            context.locale.sendRaw(sender, "commands.mmoinfo-header")
+                            context.locale.sendRaw(sender, "commands.mmoinfo-summary")
+                        }
                         Command.SINGLE_SUCCESS
                     },
                     tabSuggester = { _, parts ->
@@ -739,6 +816,10 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     "opus.admin",
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
+                        if (args.isEmpty() && sender is Player) {
+                            SkillDialogs.openHardcoreDialog(context, sender)
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
                         when (args.firstOrNull()?.lowercase()) {
                             "on", "enable" -> context.config.hardcoreStatLossEnabled = true
                             "off", "disable" -> context.config.hardcoreStatLossEnabled = false
@@ -781,6 +862,10 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     "opus.admin",
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
+                        if (args.isEmpty() && sender is Player) {
+                            SkillDialogs.openHardcoreDialog(context, sender)
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
                         when (args.firstOrNull()?.lowercase()) {
                             "on", "enable" -> context.config.hardcoreVampirismEnabled = true
                             "off", "disable" -> context.config.hardcoreVampirismEnabled = false
@@ -821,6 +906,10 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                 CommandHelper.simpleArgsCommand(name, "opus.admin", executor = { ctx, args ->
                     val sender = ctx.source.sender
                     val targetName = args.firstOrNull() ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
+                    if (sender is Player && !args.getOrNull(1).equals("confirm", ignoreCase = true)) {
+                        SkillDialogs.openRemovePlayerConfirm(context, sender, targetName)
+                        return@simpleArgsCommand Command.SINGLE_SUCCESS
+                    }
                     CommandHelper.dispatchAsync(
                         context,
                         sender,
@@ -850,6 +939,10 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                 CommandHelper.simpleArgsCommand(name, "opus.admin", executor = { ctx, args ->
                     val sender = ctx.source.sender
                     val days = args.firstOrNull()?.toLongOrNull() ?: 180L
+                    if (sender is Player && !args.any { it.equals("confirm", ignoreCase = true) }) {
+                        SkillDialogs.openPurgeConfirm(context, sender, days)
+                        return@simpleArgsCommand Command.SINGLE_SUCCESS
+                    }
                     val cutoff = System.currentTimeMillis() - (days * 86_400_000L)
                     CommandHelper.dispatchAsync(
                         context,
@@ -876,7 +969,7 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                     executor = { ctx, args ->
                         val sender = ctx.source.sender
                         if (args.size < 2) {
-                            sender.sendMessage(TextFormatter.format("<gray>Usage: /skillreset <player> <skill|all></gray>"))
+                            context.locale.send(sender, "commands.usage-skillreset")
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
                         val target = Bukkit.getPlayerExact(args[0])
@@ -884,8 +977,18 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                             context.locale.send(sender, "general.player-not-found", "player" to args[0])
                             return@simpleArgsCommand Command.SINGLE_SUCCESS
                         }
+                        val isAll = args[1].equals("all", ignoreCase = true)
+                        val skill = if (isAll) null else SkillType.match(args[1])?.takeIf { !it.isChild }
+                        if (!isAll && skill == null) {
+                            context.locale.send(sender, "general.invalid-skill", "skill" to args[1])
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
+                        if (sender is Player && !args.getOrNull(2).equals("confirm", ignoreCase = true)) {
+                            SkillDialogs.openSkillResetConfirm(context, sender, target, skill)
+                            return@simpleArgsCommand Command.SINGLE_SUCCESS
+                        }
                         val state = context.players.getCached(target)
-                        if (args[1].equals("all", ignoreCase = true)) {
+                        if (skill == null) {
                             for (s in SkillType.nonChildSkills) {
                                 state.setSkill(s, context.config.startingLevel, 0.0)
                             }
@@ -893,14 +996,9 @@ class SkillCoreModule(private val context: OpusContext) : OpusModule {
                                 sender,
                                 "commands.skillreset-success",
                                 "player" to target.name,
-                                "skill" to "ALL"
+                                "skill" to context.locale.raw("commands.skillreset-all-label"),
                             )
                         } else {
-                            val skill = SkillType.match(args[1])?.takeIf { !it.isChild }
-                            if (skill == null) {
-                                context.locale.send(sender, "general.invalid-skill", "skill" to args[1])
-                                return@simpleArgsCommand Command.SINGLE_SUCCESS
-                            }
                             state.setSkill(skill, context.config.startingLevel, 0.0)
                             context.locale.send(
                                 sender,

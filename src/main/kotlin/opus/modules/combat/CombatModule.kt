@@ -1,7 +1,9 @@
 package opus.modules.combat
 
 import opus.core.OpusContext
+import opus.core.gui.OpusDialogs
 import opus.core.module.OpusModule
+import opus.core.text.TextFormatter
 import opus.events.XpGainReason
 import opus.skills.SkillType
 import opus.skills.SubSkillType
@@ -122,6 +124,9 @@ class CombatListener(private val context: OpusContext) : Listener {
         val arrows = arrowsStuckInEntity.remove(entity.uniqueId) ?: return
         if (arrows > 0) {
             event.drops.add(ItemStack(Material.ARROW, arrows))
+            entity.killer?.let { killer ->
+                context.locale.sendActionBar(killer, "gameplay.archery-retrieve")
+            }
         }
     }
 
@@ -196,14 +201,50 @@ class CombatListener(private val context: OpusContext) : Listener {
         if (item != Material.BONE && item != Material.AIR) return
         val maxHp = (target as? LivingEntity)?.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
         val hp = (target as? LivingEntity)?.health ?: 20.0
-        context.locale.send(
+        val ownerName = target.owner?.name ?: "Unknown"
+        context.locale.sendActionBar(
             player,
             "gameplay.taming-beast-lore",
             "mob" to target.name,
-            "owner" to (target.owner?.name ?: "Unknown"),
+            "owner" to ownerName,
             "hp" to "%.1f".format(hp),
             "max_hp" to "%.1f".format(maxHp),
         )
+        if (player.isSneaking) {
+            val tamingPerks = listOf(
+                SubSkillType.TAMING_THICK_FUR,
+                SubSkillType.TAMING_SHOCK_PROOF,
+                SubSkillType.TAMING_ENVIRONMENTALLY_AWARE,
+                SubSkillType.TAMING_HOLY_HOUND,
+                SubSkillType.TAMING_GORE,
+                SubSkillType.TAMING_SHARPENED_CLAWS,
+                SubSkillType.TAMING_FAST_FOOD_SERVICE,
+                SubSkillType.TAMING_PUMMEL,
+            ).filter { context.ranks.hasUnlocked(state, it, player) }
+                .joinToString(", ") { context.locale.subSkillName(it) }
+                .ifEmpty { "-" }
+
+            OpusDialogs.showNotice(
+                context = context,
+                player = player,
+                title = context.locale.component("dialog.beast-lore-title", mapOf("mob" to target.name)),
+                body = listOf(
+                    OpusDialogs.itemBody(
+                        ItemStack(Material.BONE),
+                        descriptionRaw = context.locale.raw(
+                            "gameplay.taming-beast-lore",
+                            "mob" to target.name,
+                            "owner" to ownerName,
+                            "hp" to "%.1f".format(hp),
+                            "max_hp" to "%.1f".format(maxHp),
+                        ),
+                    ),
+                    OpusDialogs.plainBody(
+                        context.locale.raw("dialog.beast-lore-perks", "perks" to tamingPerks)
+                    ),
+                ),
+            )
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -288,6 +329,7 @@ class CombatListener(private val context: OpusContext) : Listener {
         }
         reflectedArrow.persistentDataContainer.set(bounceCountKey, PersistentDataType.INTEGER, bounces + 1)
         arrow.remove()
+        context.locale.sendActionBar(shooter, "gameplay.crossbows-trick-shot")
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -548,6 +590,7 @@ class CombatListener(private val context: OpusContext) : Listener {
             ) {
                 event.damage *= context.skillsConfig.double("taming.gore.modifier", 2.0)
                 applyRupture(owner, target, 1)
+                context.locale.sendActionBar(owner, "gameplay.taming-gore")
             }
         }
         if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_FAST_FOOD_SERVICE, owner)) {
@@ -778,6 +821,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                     )
                 ) {
                     applyArmorImpact(target, armorImpactRank)
+                    context.locale.sendActionBar(attacker, "gameplay.axes-armor-impact")
                 }
                 if (splitter) {
                     val mod = context.skillsConfig.double("axes.skull-splitter.damage-modifier", 2.0).coerceAtLeast(1.0)
@@ -1043,6 +1087,11 @@ class CombatListener(private val context: OpusContext) : Listener {
         val cdSec = context.skillsConfig.int("taming.call-of-the-wild.cooldown-seconds", 30)
         val nextAllowed = callOfWildCooldowns[player.uniqueId] ?: 0L
         if (now < nextAllowed) {
+            context.locale.sendActionBar(
+                player,
+                "general.cooldown-active",
+                "time" to TextFormatter.formatDuration(nextAllowed - now),
+            )
             return true
         }
 

@@ -9,7 +9,7 @@ class OpusConfig(private val plugin: Plugin) {
 
     private val configFile = YamlConfigFile(plugin, "config.yml")
 
-    var language: String = "ko"
+    var language: String = "ko_kr"
         private set
     var storageMethod: String = "sqlite"
         private set
@@ -133,7 +133,7 @@ class OpusConfig(private val plugin: Plugin) {
     fun reload() {
         configFile.reload()
         val y = configFile.yaml
-        language = y.getString("language", "ko") ?: "ko"
+        language = normalizeLocale(y.getString("language", "ko_kr") ?: "ko_kr")
         storageMethod = (y.getString("storage.method", "sqlite") ?: "sqlite").lowercase()
         autoSaveIntervalSeconds = y.getLong("storage.auto-save-interval-seconds", 60L).coerceAtLeast(10L)
         forceSaveOnLogout = y.getBoolean("storage.force-save-on-logout", true)
@@ -198,4 +198,15 @@ class OpusConfig(private val plugin: Plugin) {
         raw.getBoolean("modules.$moduleId", defaultEnabled)
 
     fun save() = configFile.save()
+
+    companion object {
+        fun normalizeLocale(raw: String): String {
+            return when (val cleaned = raw.trim().lowercase().replace('-', '_')) {
+                "en", "en_us" -> "en_us"
+                "ko", "ko_kr" -> "ko_kr"
+                "" -> "en_us"
+                else -> cleaned
+            }
+        }
+    }
 }

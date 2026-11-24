@@ -31,7 +31,7 @@ enum class SuperAbilityType(
         get() = linkedSubSkill?.permissionNode ?: "opus.ability.${skill.key}.${name.lowercase()}"
 
     fun displayName(language: String): String =
-        if (language.equals("ko", ignoreCase = true)) koName else enName
+        if (language.startsWith("ko", ignoreCase = true)) koName else enName
 
     companion object {
         private val bySkill = entries.associateBy { it.skill }

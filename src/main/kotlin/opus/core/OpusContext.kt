@@ -14,6 +14,7 @@ import opus.core.locale.LocaleService
 import opus.core.module.ModuleRegistry
 import opus.core.player.PlayerDataService
 import opus.core.scheduler.OpusScheduler
+import opus.core.scheduler.WarmupRunner
 import opus.core.world.PlacedBlockTracker
 import opus.skills.*
 import org.bukkit.plugin.java.JavaPlugin
@@ -89,6 +90,7 @@ class OpusContext(val plugin: JavaPlugin) {
     }
 
     fun shutdown() {
+        WarmupRunner.clearAll()
         modules.disableAll()
         players.flushAllBlocking()
         scheduler.shutdown()

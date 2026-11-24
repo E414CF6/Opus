@@ -11,7 +11,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import opus.core.OpusContext
-import opus.core.text.TextFormatter
 import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
@@ -76,7 +75,7 @@ object CommandHelper {
             if (box != null) {
                 onResult(box.value)
             } else {
-                sender.sendMessage(TextFormatter.format("<red>Command timed out while querying database.</red>"))
+                context.locale.send(sender, "general.db-timeout")
             }
             return
         }
@@ -88,16 +87,26 @@ object CommandHelper {
         }
     }
 
-    fun registerRootCommand(registrar: Commands, context: OpusContext, onGui: ((Player) -> Unit)? = null) {
+    fun registerRootCommand(
+        registrar: Commands,
+        context: OpusContext,
+        onGui: ((Player) -> Unit)? = null,
+        onSettings: ((Player) -> Unit)? = null,
+        onAdmin: ((Player) -> Unit)? = null,
+    ) {
         val sendInfo: (CommandSender) -> Int = { sender ->
             val active = context.modules.activeModules().joinToString(", ") { it.id }
-            val mode = if (context.config.retroMode) "Retro (0-1000)" else "Standard (0-100)"
-            sender.sendMessage(
-                context.locale.prefix().append(
-                    TextFormatter.format(
-                        "<gray>Opus <white>v${context.plugin.pluginMeta.version}</white> | DB: <white>${context.database.dialect}</white> | Mode: <white>$mode</white> | Lang: <white>${context.config.language}</white> | Modules: <aqua>$active</aqua></gray>"
-                    )
-                )
+            val mode = context.locale.raw(
+                if (context.config.retroMode) "commands.opus-mode-retro" else "commands.opus-mode-standard"
+            )
+            context.locale.send(
+                sender,
+                "commands.opus-info",
+                "version" to context.plugin.pluginMeta.version,
+                "db" to context.database.dialect,
+                "mode" to mode,
+                "lang" to context.config.language,
+                "modules" to active,
             )
             Command.SINGLE_SUCCESS
         }
@@ -120,6 +129,16 @@ object CommandHelper {
                 onGui?.invoke(player) ?: sendInfo(player)
                 Command.SINGLE_SUCCESS
             })
+            .then(Commands.literal("settings").executes { ctx ->
+                val player = requirePlayer(context, ctx.source.sender) ?: return@executes Command.SINGLE_SUCCESS
+                onSettings?.invoke(player) ?: sendInfo(player)
+                Command.SINGLE_SUCCESS
+            })
+            .then(Commands.literal("admin").requires { it.sender.hasPermission("opus.admin") }.executes { ctx ->
+                val player = requirePlayer(context, ctx.source.sender) ?: return@executes Command.SINGLE_SUCCESS
+                onAdmin?.invoke(player) ?: sendInfo(player)
+                Command.SINGLE_SUCCESS
+            })
             .then(Commands.literal("reload").requires { it.sender.hasPermission("opus.admin") }.executes { ctx ->
                 context.reloadAll()
                 context.locale.send(ctx.source.sender, "general.reloaded")
@@ -128,8 +147,11 @@ object CommandHelper {
             .then(Commands.literal("modules").requires { it.sender.hasPermission("opus.admin") }.executes { ctx ->
                 val sender = ctx.source.sender
                 context.modules.activeModules().forEach { mod ->
-                    sender.sendMessage(
-                        TextFormatter.format(" <dark_gray>•</dark_gray> <aqua>${mod.id}</aqua> <gray>- ${mod.description}</gray>")
+                    context.locale.sendRaw(
+                        sender,
+                        "commands.opus-module-entry",
+                        "id" to mod.id,
+                        "description" to mod.description,
                     )
                 }
                 Command.SINGLE_SUCCESS
