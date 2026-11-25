@@ -2,6 +2,7 @@ package opus.core.scheduler
 
 import net.kyori.adventure.bossbar.BossBar
 import opus.core.OpusContext
+import opus.core.ui.ActionBarPriority
 import opus.skills.HudFeedbackHook
 import org.bukkit.entity.Player
 import java.util.*
@@ -45,6 +46,7 @@ object WarmupRunner {
 
         val hud = context.getService<HudFeedbackHook>()
 
+        val warmupStateKey = "warmup_$channel"
         fun emitProgress(remainingTicks: Long) {
             val secText = ceil(remainingTicks / 20.0).toInt().coerceAtLeast(1).toString()
             val merged = placeholders + ("seconds" to secText)
@@ -57,10 +59,12 @@ object WarmupRunner {
                 progress = progress,
                 durationTicks = 25L,
             )
-            context.locale.sendActionBar(
-                player,
-                actionBarKey,
-                *merged.entries.map { it.key to it.value }.toTypedArray()
+            context.actionBar.setState(
+                player = player,
+                key = warmupStateKey,
+                priority = ActionBarPriority.WARMUP,
+                component = context.locale.component(actionBarKey, merged),
+                ttlMillis = 1500L,
             )
         }
 
@@ -73,12 +77,14 @@ object WarmupRunner {
             stepTicks,
             retired = {
                 set.remove(player.uniqueId)
+                context.actionBar.clearState(player.uniqueId, warmupStateKey)
                 hud?.hideChannelBossBar(player, channel)
             },
         ) { scheduled ->
             elapsedTicks += stepTicks
             if (!player.isOnline || player.isDead) {
                 set.remove(player.uniqueId)
+                context.actionBar.clearState(player.uniqueId, warmupStateKey)
                 hud?.hideChannelBossBar(player, channel)
                 scheduled.cancel()
                 return@runForEntityTimer
@@ -88,8 +94,9 @@ object WarmupRunner {
             val damaged = cancelOnDamage && player.health < startHp
             if (moved || damaged) {
                 set.remove(player.uniqueId)
+                context.actionBar.clearState(player.uniqueId, warmupStateKey)
                 hud?.hideChannelBossBar(player, channel)
-                context.locale.sendActionBar(player, cancelledKey)
+                context.actionBar.pushTransientLocale(player, cancelledKey)
                 scheduled.cancel()
                 return@runForEntityTimer
             }
@@ -97,6 +104,7 @@ object WarmupRunner {
             val remaining = (totalTicks - elapsedTicks).coerceAtLeast(0L)
             if (remaining <= 0L) {
                 set.remove(player.uniqueId)
+                context.actionBar.clearState(player.uniqueId, warmupStateKey)
                 hud?.hideChannelBossBar(player, channel)
                 scheduled.cancel()
                 onComplete()
@@ -108,6 +116,7 @@ object WarmupRunner {
 
         if (task == null) {
             set.remove(player.uniqueId)
+            context.actionBar.clearState(player.uniqueId, warmupStateKey)
             hud?.hideChannelBossBar(player, channel)
             return false
         }

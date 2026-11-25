@@ -34,8 +34,8 @@ class RanksConfig(plugin: Plugin? = null, initialYaml: YamlConfiguration? = null
         for (subSkill in SubSkillType.entries) {
             val std = y.getIntegerList("${subSkill.name}.standard")
             val ret = y.getIntegerList("${subSkill.name}.retro")
-            standardRanks[subSkill] = if (std.isNotEmpty()) std else listOf(1)
-            retroRanks[subSkill] = if (ret.isNotEmpty()) ret else listOf(1)
+            standardRanks[subSkill] = std.ifEmpty { listOf(1) }
+            retroRanks[subSkill] = ret.ifEmpty { listOf(1) }
         }
     }
 
@@ -117,8 +117,7 @@ class SkillsConfig(plugin: Plugin? = null, initialYaml: YamlConfiguration? = nul
         defaultLevelCap = y.getInt("level-caps.default", 0).coerceAtLeast(0)
     }
 
-    fun levelCap(skill: SkillType): Int =
-        yaml.getInt("level-caps.${skill.key}", defaultLevelCap).coerceAtLeast(0)
+    fun levelCap(skill: SkillType): Int = yaml.getInt("level-caps.${skill.key}", defaultLevelCap).coerceAtLeast(0)
 
     fun isPvpEnabled(skill: SkillType): Boolean =
         yaml.getBoolean("pvp-enabled.${skill.key}", yaml.getBoolean("pvp-enabled.default", true))

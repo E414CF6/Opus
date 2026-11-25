@@ -9,13 +9,7 @@ import org.bukkit.event.HandlerList
 import org.bukkit.inventory.ItemStack
 
 enum class XpGainReason {
-    PVE,
-    PVP,
-    GATHERING,
-    CRAFTING,
-    SHARED_PARTY,
-    COMMAND,
-    OTHER,
+    PVE, PVP, GATHERING, CRAFTING, SHARED_PARTY, COMMAND, OTHER,
 }
 
 class OpusSkillXpGainEvent(

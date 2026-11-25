@@ -22,10 +22,8 @@ import java.time.Duration
  */
 object OpusDialogs {
 
-    private val defaultCallbackOptions: ClickCallback.Options = ClickCallback.Options.builder()
-        .uses(1)
-        .lifetime(Duration.ofMinutes(10))
-        .build()
+    private val defaultCallbackOptions: ClickCallback.Options =
+        ClickCallback.Options.builder().uses(1).lifetime(Duration.ofMinutes(10)).build()
 
     fun customAction(
         context: OpusContext,
@@ -78,11 +76,9 @@ object OpusDialogs {
         action = action,
     )
 
-    fun plainBody(component: Component, width: Int = 280): DialogBody =
-        DialogBody.plainMessage(component, width)
+    fun plainBody(component: Component, width: Int = 280): DialogBody = DialogBody.plainMessage(component, width)
 
-    fun plainBody(raw: String, width: Int = 280): DialogBody =
-        DialogBody.plainMessage(TextFormatter.format(raw), width)
+    fun plainBody(raw: String, width: Int = 280): DialogBody = DialogBody.plainMessage(TextFormatter.format(raw), width)
 
     fun itemBody(
         item: ItemStack,
@@ -92,11 +88,8 @@ object OpusDialogs {
         width: Int = 16,
         height: Int = 16,
     ): DialogBody {
-        val builder = DialogBody.item(item)
-            .showDecorations(showDecorations)
-            .showTooltip(showTooltip)
-            .width(width)
-            .height(height)
+        val builder =
+            DialogBody.item(item).showDecorations(showDecorations).showTooltip(showTooltip).width(width).height(height)
         if (descriptionRaw != null) {
             builder.description(DialogBody.plainMessage(TextFormatter.format(descriptionRaw), 240))
         }
@@ -109,12 +102,9 @@ object OpusDialogs {
         initial: String = "",
         maxLength: Int = 64,
         width: Int = 220,
-    ): DialogInput = DialogInput.text(key, TextFormatter.format("<!italic>$labelRaw"))
-        .initial(initial)
-        .maxLength(maxLength)
-        .width(width)
-        .labelVisible(true)
-        .build()
+    ): DialogInput =
+        DialogInput.text(key, TextFormatter.format("<!italic>$labelRaw")).initial(initial).maxLength(maxLength)
+            .width(width).labelVisible(true).build()
 
     fun boolInput(
         key: String,
@@ -122,11 +112,8 @@ object OpusDialogs {
         initial: Boolean,
         onTrue: String = "ON",
         onFalse: String = "OFF",
-    ): DialogInput = DialogInput.bool(key, TextFormatter.format("<!italic>$labelRaw"))
-        .initial(initial)
-        .onTrue(onTrue)
-        .onFalse(onFalse)
-        .build()
+    ): DialogInput = DialogInput.bool(key, TextFormatter.format("<!italic>$labelRaw")).initial(initial).onTrue(onTrue)
+        .onFalse(onFalse).build()
 
     fun singleOptionInput(
         key: String,
@@ -137,10 +124,8 @@ object OpusDialogs {
         val entries = options.map { (id, displayRaw, initial) ->
             SingleOptionDialogInput.OptionEntry.create(id, TextFormatter.format("<!italic>$displayRaw"), initial)
         }
-        return DialogInput.singleOption(key, TextFormatter.format("<!italic>$labelRaw"), entries)
-            .width(width)
-            .labelVisible(true)
-            .build()
+        return DialogInput.singleOption(key, TextFormatter.format("<!italic>$labelRaw"), entries).width(width)
+            .labelVisible(true).build()
     }
 
     fun numberRangeInput(
@@ -153,11 +138,7 @@ object OpusDialogs {
         width: Int = 220,
         labelFormat: String = "%s: %s",
     ): DialogInput = DialogInput.numberRange(key, TextFormatter.format("<!italic>$labelRaw"), start, end)
-        .initial(initial.coerceIn(start, end))
-        .step(step)
-        .width(width)
-        .labelFormat(labelFormat)
-        .build()
+        .initial(initial.coerceIn(start, end)).step(step).width(width).labelFormat(labelFormat).build()
 
     fun showNotice(
         context: OpusContext,
@@ -168,20 +149,14 @@ object OpusDialogs {
         onClose: ((Player) -> Unit)? = null,
     ) {
         val dialog = Dialog.create { factory ->
-            factory.empty()
-                .base(
-                    DialogBase.builder(title)
-                        .canCloseWithEscape(true)
-                        .pause(false)
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .body(body)
-                        .build()
+            factory.empty().base(
+                DialogBase.builder(title).canCloseWithEscape(true).pause(false)
+                    .afterAction(DialogBase.DialogAfterAction.CLOSE).body(body).build()
+            ).type(
+                DialogType.notice(
+                    actionButton(buttonLabelRaw, width = 150, action = closeAction(context, onClose))
                 )
-                .type(
-                    DialogType.notice(
-                        actionButton(buttonLabelRaw, width = 150, action = closeAction(context, onClose))
-                    )
-                )
+            )
         }
         player.showDialog(dialog)
     }
@@ -197,29 +172,23 @@ object OpusDialogs {
         onCancel: ((Player) -> Unit)? = null,
     ) {
         val dialog = Dialog.create { factory ->
-            factory.empty()
-                .base(
-                    DialogBase.builder(title)
-                        .canCloseWithEscape(true)
-                        .pause(false)
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .body(body)
-                        .build()
+            factory.empty().base(
+                DialogBase.builder(title).canCloseWithEscape(true).pause(false)
+                    .afterAction(DialogBase.DialogAfterAction.CLOSE).body(body).build()
+            ).type(
+                DialogType.confirmation(
+                    actionButton(
+                        confirmLabelRaw,
+                        width = 140,
+                        action = customAction(context) { _, p -> onConfirm(p) },
+                    ),
+                    actionButton(
+                        cancelLabelRaw,
+                        width = 140,
+                        action = closeAction(context, onCancel),
+                    ),
                 )
-                .type(
-                    DialogType.confirmation(
-                        actionButton(
-                            confirmLabelRaw,
-                            width = 140,
-                            action = customAction(context) { _, p -> onConfirm(p) },
-                        ),
-                        actionButton(
-                            cancelLabelRaw,
-                            width = 140,
-                            action = closeAction(context, onCancel),
-                        ),
-                    )
-                )
+            )
         }
         player.showDialog(dialog)
     }
@@ -239,22 +208,12 @@ object OpusDialogs {
         columns: Int = 2,
     ) {
         val dialog = Dialog.create { factory ->
-            factory.empty()
-                .base(
-                    DialogBase.builder(title)
-                        .canCloseWithEscape(true)
-                        .pause(false)
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .body(body)
-                        .inputs(inputs)
-                        .build()
-                )
-                .type(
-                    DialogType.multiAction(actions)
-                        .exitAction(exitButton)
-                        .columns(columns.coerceIn(1, 4))
-                        .build()
-                )
+            factory.empty().base(
+                DialogBase.builder(title).canCloseWithEscape(true).pause(false)
+                    .afterAction(DialogBase.DialogAfterAction.CLOSE).body(body).inputs(inputs).build()
+            ).type(
+                DialogType.multiAction(actions).exitAction(exitButton).columns(columns.coerceIn(1, 4)).build()
+            )
         }
         player.showDialog(dialog)
     }

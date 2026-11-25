@@ -1,6 +1,7 @@
 package opus.core.gui
 
 import net.kyori.adventure.text.Component
+import opus.core.OpusContext
 import opus.core.text.TextFormatter
 import org.bukkit.Bukkit
 import org.bukkit.Material
@@ -10,11 +11,15 @@ import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.inventory.ClickType
 import org.bukkit.event.inventory.InventoryClickEvent
+import org.bukkit.event.inventory.InventoryCloseEvent
 import org.bukkit.event.inventory.InventoryDragEvent
 import org.bukkit.inventory.Inventory
 import org.bukkit.inventory.InventoryHolder
 import org.bukkit.inventory.ItemFlag
 import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.meta.SkullMeta
+import org.bukkit.plugin.java.JavaPlugin
+import java.util.UUID
 
 data class MenuClickContext(
     val player: Player,
@@ -29,7 +34,8 @@ class MenuButton(
 )
 
 /**
- * [InventoryHolder]-backed menu window guaranteeing safe click routing and preventing item extraction.
+ * [InventoryHolder]-backed menu window guaranteeing safe click routing, optional editable slots,
+ * close callbacks, and item-extraction protection.
  */
 class MenuWindow(
     val title: Component,
@@ -38,6 +44,11 @@ class MenuWindow(
 
     private val buttons = HashMap<Int, MenuButton>()
     private val backing: Inventory = Bukkit.createInventory(this, rows.coerceIn(1, 6) * 9, title)
+
+    val editableSlots: MutableSet<Int> = HashSet()
+    var allowBottomInventoryClick: Boolean = false
+    var onClose: ((InventoryCloseEvent) -> Unit)? = null
+    var onEditableChanged: ((Player) -> Unit)? = null
 
     override fun getInventory(): Inventory = backing
 
@@ -49,6 +60,12 @@ class MenuWindow(
         backing.setItem(slot, item)
     }
 
+    fun clearSlot(slot: Int) {
+        if (slot !in 0 until backing.size) return
+        buttons.remove(slot)
+        backing.setItem(slot, null)
+    }
+
     fun fillBorder(item: ItemStack) {
         val total = backing.size
         val cols = 9
@@ -56,9 +73,48 @@ class MenuWindow(
             val row = slot / cols
             val col = slot % cols
             if (row == 0 || row == rows - 1 || col == 0 || col == cols - 1) {
-                if (!buttons.containsKey(slot)) {
+                if (!buttons.containsKey(slot) && slot !in editableSlots) {
                     set(slot, item)
                 }
+            }
+        }
+    }
+
+    fun fillRow(row: Int, item: ItemStack) {
+        if (row !in 0 until rows) return
+        val start = row * 9
+        for (slot in start until start + 9) {
+            if (!buttons.containsKey(slot) && slot !in editableSlots) {
+                set(slot, item)
+            }
+        }
+    }
+
+    fun fillEmpty(item: ItemStack) {
+        for (slot in 0 until backing.size) {
+            if (!buttons.containsKey(slot) && slot !in editableSlots && backing.getItem(slot) == null) {
+                set(slot, item)
+            }
+        }
+    }
+
+    fun setFooterNav(
+        context: OpusContext,
+        page: Int,
+        totalPages: Int,
+        prevSlot: Int = (rows - 1) * 9 + 3,
+        nextSlot: Int = (rows - 1) * 9 + 5,
+        onPrev: () -> Unit,
+        onNext: () -> Unit,
+    ) {
+        if (page > 1) {
+            set(prevSlot, MenuItems.item(Material.ARROW, context.locale.raw("gui.prev-page"))) {
+                onPrev()
+            }
+        }
+        if (page < totalPages) {
+            set(nextSlot, MenuItems.item(Material.ARROW, context.locale.raw("gui.next-page"))) {
+                onNext()
             }
         }
     }
@@ -68,31 +124,94 @@ class MenuWindow(
     }
 
     internal fun handleClick(event: InventoryClickEvent) {
-        event.isCancelled = true
         val player = event.whoClicked as? Player ?: return
-        val button = buttons[event.rawSlot] ?: return
-        button.onClick(MenuClickContext(player, event.rawSlot, event.click, event))
+        val raw = event.rawSlot
+        val topSize = event.view.topInventory.size
+
+        if (editableSlots.isNotEmpty()) {
+            if (raw >= topSize) {
+                if (!allowBottomInventoryClick) {
+                    event.isCancelled = true
+                } else if (event.isShiftClick) {
+                    onEditableChanged?.let { cb ->
+                        player.scheduler.run(
+                            JavaPlugin.getProvidingPlugin(MenuWindow::class.java),
+                            { cb(player) },
+                            null,
+                        )
+                    }
+                }
+                return
+            }
+            if (raw in editableSlots) {
+                onEditableChanged?.let { cb ->
+                    player.scheduler.run(
+                        JavaPlugin.getProvidingPlugin(MenuWindow::class.java),
+                        { cb(player) },
+                        null,
+                    )
+                }
+                return
+            }
+            event.isCancelled = true
+            buttons[raw]?.onClick?.invoke(MenuClickContext(player, raw, event.click, event))
+            return
+        }
+
+        event.isCancelled = true
+        val button = buttons[raw] ?: return
+        button.onClick(MenuClickContext(player, raw, event.click, event))
+    }
+
+    internal fun handleDrag(event: InventoryDragEvent) {
+        if (editableSlots.isEmpty()) {
+            event.isCancelled = true
+            return
+        }
+        val topSize = event.view.topInventory.size
+        val touchesProtectedTop = event.rawSlots.any { it < topSize && it !in editableSlots }
+        if (touchesProtectedTop) {
+            event.isCancelled = true
+            return
+        }
+        val player = event.whoClicked as? Player ?: return
+        onEditableChanged?.let { cb ->
+            player.scheduler.run(
+                JavaPlugin.getProvidingPlugin(MenuWindow::class.java),
+                { cb(player) },
+                null,
+            )
+        }
+    }
+
+    internal fun handleClose(event: InventoryCloseEvent) {
+        onClose?.invoke(event)
     }
 }
 
 /**
- * Global listener dispatching clicks on [MenuWindow] inventories.
+ * Global listener dispatching clicks, drags, and close events on [MenuWindow] inventories.
  */
 class MenuListener : Listener {
 
     @EventHandler(priority = EventPriority.HIGH)
     fun onInventoryClick(event: InventoryClickEvent) {
         val holder = event.view.topInventory.holder as? MenuWindow ?: return
-        if (event.rawSlot < event.view.topInventory.size || event.isShiftClick) {
+        if (holder.editableSlots.isNotEmpty() || event.rawSlot < event.view.topInventory.size || event.isShiftClick) {
             holder.handleClick(event)
         }
     }
 
     @EventHandler(priority = EventPriority.HIGH)
     fun onInventoryDrag(event: InventoryDragEvent) {
-        if (event.view.topInventory.holder is MenuWindow) {
-            event.isCancelled = true
-        }
+        val holder = event.view.topInventory.holder as? MenuWindow ?: return
+        holder.handleDrag(event)
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onInventoryClose(event: InventoryCloseEvent) {
+        val holder = event.view.topInventory.holder as? MenuWindow ?: return
+        holder.handleClose(event)
     }
 }
 
@@ -103,7 +222,7 @@ object MenuItems {
         lore: List<String> = emptyList(),
         amount: Int = 1,
     ): ItemStack {
-        val stack = ItemStack(material, amount.coerceIn(1, 64))
+        val stack = ItemStack(material, amount.coerceIn(1, material.maxStackSize))
         val meta = stack.itemMeta ?: return stack
         meta.displayName(TextFormatter.format("<!italic>$name"))
         if (lore.isNotEmpty()) {
@@ -113,4 +232,51 @@ object MenuItems {
         stack.itemMeta = meta
         return stack
     }
+
+    fun playerHead(
+        uuid: UUID?,
+        nameHint: String?,
+        displayName: String,
+        lore: List<String> = emptyList(),
+    ): ItemStack {
+        val stack = ItemStack(Material.PLAYER_HEAD)
+        val meta = stack.itemMeta as? SkullMeta ?: return stack
+        if (uuid != null) {
+            meta.owningPlayer = Bukkit.getOfflinePlayer(uuid)
+        } else if (!nameHint.isNullOrBlank()) {
+            @Suppress("DEPRECATION")
+            meta.owningPlayer = Bukkit.getOfflinePlayer(nameHint)
+        }
+        meta.displayName(TextFormatter.format("<!italic>$displayName"))
+        if (lore.isNotEmpty()) {
+            meta.lore(lore.map { TextFormatter.format("<!italic>$it") })
+        }
+        stack.itemMeta = meta
+        return stack
+    }
+
+    fun toggle(
+        material: Material,
+        label: String,
+        enabled: Boolean,
+        context: OpusContext,
+        extraLore: List<String> = emptyList(),
+    ): ItemStack {
+        val stateText = context.locale.raw(if (enabled) "general.state-on" else "general.state-off")
+        val lore = buildList {
+            addAll(extraLore)
+            add(context.locale.raw("gui.click-toggle"))
+        }
+        return item(
+            material = material,
+            name = "<aqua>$label</aqua> <gray>[</gray>$stateText<gray>]</gray>",
+            lore = lore,
+        )
+    }
+
+    fun backButton(context: OpusContext): ItemStack =
+        item(Material.ARROW, context.locale.raw("gui.back"))
+
+    fun closeButton(context: OpusContext): ItemStack =
+        item(Material.BARRIER, context.locale.raw("gui.close"))
 }

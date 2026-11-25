@@ -279,7 +279,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                         0.5f
                     )
                     extra.shooter = player
-                    extra.setWeapon(ItemStack(Material.CROSSBOW))
+                    extra.weapon = ItemStack(Material.CROSSBOW)
                     extra.pickupStatus = AbstractArrow.PickupStatus.DISALLOWED
                 }
             }
@@ -319,7 +319,7 @@ class CombatListener(private val context: OpusContext) : Listener {
         reflectedArrow.isCritical = arrow.isCritical
         reflectedArrow.pierceLevel = arrow.pierceLevel
         reflectedArrow.pickupStatus = arrow.pickupStatus
-        reflectedArrow.setWeapon(ItemStack(Material.CROSSBOW))
+        reflectedArrow.weapon = ItemStack(Material.CROSSBOW)
         arrow.basePotionType?.let {
             reflectedArrow.itemStack = ItemStack(Material.TIPPED_ARROW)
             reflectedArrow.basePotionType = it
@@ -1044,7 +1044,7 @@ class CombatListener(private val context: OpusContext) : Listener {
         val held = target.inventory.itemInMainHand
         if (held.type == Material.AIR) return
         val clone = held.clone()
-        target.inventory.setItemInMainHand(ItemStack(Material.AIR))
+        target.inventory.itemInMainHand = ItemStack(Material.AIR)
         val dropped = target.world.dropItemNaturally(target.location, clone)
         if (context.skillsConfig.boolean("unarmed.disarm.anti-theft", false)) {
             dropped.persistentDataContainer.set(disarmOwnerKey, PersistentDataType.STRING, target.uniqueId.toString())

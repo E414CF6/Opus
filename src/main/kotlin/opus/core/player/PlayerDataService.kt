@@ -19,22 +19,15 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 enum class XpHudMode {
-    BOSSBAR,
-    ACTIONBAR,
-    BOTH,
-    OFF,
+    BOSSBAR, ACTIONBAR, BOTH, OFF,
 }
 
 enum class ScoreboardMode {
-    DEFAULT,
-    KEEP,
-    OFF,
+    DEFAULT, KEEP, OFF,
 }
 
 enum class ChatChannelMode {
-    PUBLIC,
-    PARTY,
-    ADMIN,
+    PUBLIC, PARTY, ADMIN,
 }
 
 data class SkillProgress(
@@ -167,10 +160,7 @@ class OpusPlayerState(
     }
 
     fun trackDiminishedWindow(
-        skill: SkillType,
-        windowMillis: Long,
-        gained: Double,
-        now: Long = System.currentTimeMillis()
+        skill: SkillType, windowMillis: Long, gained: Double, now: Long = System.currentTimeMillis()
     ): Double {
         val start = xpWindowStart[skill] ?: 0L
         if (now - start > windowMillis) {

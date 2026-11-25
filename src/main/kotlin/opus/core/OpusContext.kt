@@ -3,6 +3,8 @@ package opus.core
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import opus.core.command.CommandAliasService
+import opus.core.command.OpusCommandRegistry
 import opus.core.config.ExperienceConfig
 import opus.core.config.OpusConfig
 import opus.core.config.RanksConfig
@@ -15,6 +17,7 @@ import opus.core.module.ModuleRegistry
 import opus.core.player.PlayerDataService
 import opus.core.scheduler.OpusScheduler
 import opus.core.scheduler.WarmupRunner
+import opus.core.ui.ActionBarService
 import opus.core.world.PlacedBlockTracker
 import opus.skills.*
 import org.bukkit.plugin.java.JavaPlugin
@@ -46,7 +49,10 @@ class OpusContext(val plugin: JavaPlugin) {
     val probability = ProbabilityService(config, skillsConfig, perks)
     val progression = SkillProgressionService(this)
 
+    val actionBar = ActionBarService(this)
     val modules = ModuleRegistry(plugin, config)
+    val commandRegistry = OpusCommandRegistry()
+    val commandAliases = CommandAliasService(this)
 
     private val services = ConcurrentHashMap<Class<*>, Any>()
 
@@ -87,11 +93,14 @@ class OpusContext(val plugin: JavaPlugin) {
         formula.clearCache()
         locale.reload()
         modules.reloadAll()
+        commandAliases.reload()
     }
 
     fun shutdown() {
+        commandAliases.shutdown()
         WarmupRunner.clearAll()
         modules.disableAll()
+        actionBar.stop()
         players.flushAllBlocking()
         scheduler.shutdown()
         database.close()

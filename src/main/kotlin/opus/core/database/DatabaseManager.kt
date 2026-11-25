@@ -9,9 +9,7 @@ import java.io.File
 import java.sql.Connection
 
 enum class DatabaseDialect {
-    SQLITE,
-    MYSQL,
-    MARIADB,
+    SQLITE, MYSQL, MARIADB,
 }
 
 /**

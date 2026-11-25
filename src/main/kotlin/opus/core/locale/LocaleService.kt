@@ -49,30 +49,26 @@ class LocaleService(
 
     fun skillName(skill: SkillType): String {
         val key = "skills.${skill.key}"
-        return primary?.yaml?.getString(key)
-            ?: fallback.yaml.getString(key)
-            ?: skill.displayName(config.language)
+        return primary?.yaml?.getString(key) ?: fallback.yaml.getString(key) ?: skill.displayName(config.language)
     }
 
     fun subSkillName(sub: SubSkillType): String {
         val key = "subskills.${sub.name.lowercase()}"
-        return primary?.yaml?.getString(key)
-            ?: fallback.yaml.getString(key)
-            ?: sub.displayName(config.language)
+        return primary?.yaml?.getString(key) ?: fallback.yaml.getString(key) ?: sub.displayName(config.language)
     }
 
     fun abilityName(ability: SuperAbilityType): String {
         val key = "abilities.${ability.name.lowercase()}"
-        return primary?.yaml?.getString(key)
-            ?: fallback.yaml.getString(key)
-            ?: ability.displayName(config.language)
+        return primary?.yaml?.getString(key) ?: fallback.yaml.getString(key) ?: ability.displayName(config.language)
     }
 
     fun categoryName(category: SkillCategory): String {
         val key = "categories.${category.name.lowercase()}"
-        return primary?.yaml?.getString(key)
-            ?: fallback.yaml.getString(key)
-            ?: if (config.language.startsWith("ko", ignoreCase = true)) category.koName else category.enName
+        return primary?.yaml?.getString(key) ?: fallback.yaml.getString(key) ?: if (config.language.startsWith(
+                "ko",
+                ignoreCase = true
+            )
+        ) category.koName else category.enName
     }
 
     fun prefix(): Component = TextFormatter.format(raw("prefix"))
@@ -94,11 +90,11 @@ class LocaleService(
 
     private fun stripOuterRedTag(template: String): String {
         return when {
-            template.startsWith("<red>") && template.endsWith("</red>") ->
-                template.removePrefix("<red>").removeSuffix("</red>")
+            template.startsWith("<red>") && template.endsWith("</red>") -> template.removePrefix("<red>")
+                .removeSuffix("</red>")
 
-            template.startsWith("<dark_red>") && template.endsWith("</dark_red>") ->
-                template.removePrefix("<dark_red>").removeSuffix("</dark_red>")
+            template.startsWith("<dark_red>") && template.endsWith("</dark_red>") -> template.removePrefix("<dark_red>")
+                .removeSuffix("</dark_red>")
 
             else -> template.removePrefix("<red>").removePrefix("<dark_red>")
         }

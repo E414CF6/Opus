@@ -2,6 +2,7 @@ package opus.modules.skills
 
 import net.kyori.adventure.bossbar.BossBar
 import opus.core.OpusContext
+import opus.core.command.AliasGui
 import opus.core.command.CommandHelper
 import opus.core.gui.OpusDialogs
 import opus.core.player.OpusPlayerState
@@ -389,12 +390,17 @@ object SkillDialogs {
                 action = OpusDialogs.customAction(context) { _, p -> openPlayerEditDialog(context, p) },
             ),
             OpusDialogs.actionButton(
+                locale.raw("dialog.admin-btn-aliases"),
+                width = 150,
+                action = OpusDialogs.customAction(context) { _, p -> AliasGui.open(context, p) },
+            ),
+            OpusDialogs.actionButton(
                 locale.raw("dialog.admin-btn-reload"),
                 width = 150,
                 action = OpusDialogs.customAction(context) { _, p ->
                     context.reloadAll()
                     locale.send(p, "general.reloaded")
-                    locale.sendActionBar(p, "general.reloaded")
+                    context.actionBar.pushTransientLocale(p, "general.reloaded")
                     openAdminDialog(context, p)
                 },
             ),

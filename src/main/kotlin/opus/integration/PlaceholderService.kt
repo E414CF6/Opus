@@ -1,12 +1,14 @@
 package opus.integration
 
 import kotlinx.coroutines.launch
+import me.clip.placeholderapi.PlaceholderAPI
 import opus.core.OpusContext
 import opus.core.database.LeaderboardEntry
 import opus.modules.party.PartyService
 import opus.skills.SkillType
 import org.bukkit.Bukkit
 import org.bukkit.OfflinePlayer
+import org.bukkit.entity.Player
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -83,5 +85,22 @@ class PlaceholderService(private val context: OpusContext) {
             }
         }
         return null
+    }
+
+    fun applyPlaceholders(player: Player?, template: String): String {
+        val state = player?.uniqueId?.let { context.players.getCached(it) }
+        val partyName = player?.uniqueId?.let { context.getService<PartyService>()?.getPlayerParty(it)?.name } ?: ""
+        var resolved = template
+            .replace("{online}", Bukkit.getOnlinePlayers().size.toString())
+            .replace("{max_players}", Bukkit.getMaxPlayers().toString())
+            .replace("{player}", player?.name ?: "CONSOLE")
+            .replace("{world}", player?.world?.name ?: "")
+            .replace("{power_level}", (state?.powerLevel() ?: 0).toString())
+            .replace("{party_name}", partyName)
+
+        if (player != null && isPapiEnabled()) {
+            resolved = runCatching { PlaceholderAPI.setPlaceholders(player, resolved) }.getOrDefault(resolved)
+        }
+        return resolved
     }
 }

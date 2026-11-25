@@ -2,6 +2,8 @@ package opus.skills
 
 import me.clip.placeholderapi.PlaceholderAPI
 import opus.core.OpusContext
+import opus.core.command.AliasMatcher
+import opus.core.command.SpecializedCommandExecutor
 import opus.core.config.YamlConfigFile
 import opus.core.player.OpusPlayerState
 import org.bukkit.Bukkit
@@ -166,6 +168,20 @@ class LevelUpCommandService(
         for (item in resolved) {
             val clean = item.command.removePrefix("/").trim()
             if (clean.isEmpty()) continue
+            if (AliasMatcher.isSpecializedCommandLine(clean)) {
+                SpecializedCommandExecutor.executeAll(
+                    ctx,
+                    listOf(clean),
+                    player,
+                    mapOf(
+                        "player" to player.name,
+                        "skill" to skill.displayName(ctx.config.language),
+                        "level" to newLevel.toString(),
+                        "power_level" to newPower.toString(),
+                    ),
+                )
+                continue
+            }
             when (item.runAs) {
                 LevelUpRunAs.CONSOLE -> ctx.scheduler.runGlobal {
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), clean)

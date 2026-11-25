@@ -3,6 +3,7 @@ package opus
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents
 import opus.core.OpusContext
 import opus.core.command.CommandHelper
+import opus.core.command.OpusCommandRegistrar
 import opus.core.gui.MenuListener
 import opus.integration.PlaceholderApiHook
 import opus.integration.PlaceholderService
@@ -48,7 +49,10 @@ class Opus : JavaPlugin() {
         val pm = Bukkit.getPluginManager()
         pm.registerEvents(ctx.players, this)
         pm.registerEvents(ctx.placedBlocks, this)
+        pm.registerEvents(ctx.commandAliases, this)
+        pm.registerEvents(ctx.actionBar, this)
         pm.registerEvents(MenuListener(), this)
+        ctx.actionBar.start()
 
         // Register modules in dependency order
         val hudModule = HudModule(ctx)
@@ -75,17 +79,29 @@ class Opus : JavaPlugin() {
             }
         }
 
-        // Register Brigadier commands via Paper LifecycleEvents
+        // Register only the /opus (/mcmmo) root command directly; all module commands are attached
+        // as /opus <subcommand> and exposed as standalone aliases via CommandAliasService (Obsidian / CMI-style).
         lifecycleManager.registerEventHandler(LifecycleEvents.COMMANDS) { event ->
             val registrar = event.registrar()
-            CommandHelper.registerRootCommand(
-                registrar = registrar,
-                context = ctx,
-                onGui = { player -> SkillGui.openHub(ctx, player, ctx.players.getCached(player)) },
-                onSettings = { player -> HudDialogs.openSettingsDialog(ctx, player) },
-                onAdmin = { player -> SkillDialogs.openAdminDialog(ctx, player) },
+            ctx.commandRegistry.clear()
+            val interceptingRegistrar = OpusCommandRegistrar(registrar, ctx.commandRegistry)
+            ctx.modules.registerAllCommands(interceptingRegistrar)
+
+            val rootNode = ctx.commandRegistry.buildRootNode(
+                CommandHelper.buildRootCommand(
+                    context = ctx,
+                    onGui = { player -> SkillGui.openHub(ctx, player, ctx.players.getCached(player)) },
+                    onSettings = { player -> HudDialogs.openSettingsDialog(ctx, player) },
+                    onAdmin = { player -> SkillDialogs.openAdminDialog(ctx, player) },
+                )
             )
-            ctx.modules.registerAllCommands(registrar)
+            registrar.register(
+                pluginMeta,
+                rootNode,
+                "Opus RPG core management command",
+                listOf("mcmmo"),
+            )
+            ctx.commandAliases.initializeFromRegistry()
         }
 
         ctx.startAutoSave()

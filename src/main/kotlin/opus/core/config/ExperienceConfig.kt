@@ -7,8 +7,7 @@ import org.bukkit.entity.EntityType
 import org.bukkit.plugin.Plugin
 
 enum class FormulaCurve {
-    LINEAR,
-    EXPONENTIAL,
+    LINEAR, EXPONENTIAL,
 }
 
 /**

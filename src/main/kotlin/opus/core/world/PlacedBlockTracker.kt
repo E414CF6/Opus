@@ -145,11 +145,9 @@ class PlacedBlockTracker(
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onCreatureSpawn(event: CreatureSpawnEvent) {
         val reason = when (event.spawnReason) {
-            CreatureSpawnEvent.SpawnReason.SPAWNER,
-            CreatureSpawnEvent.SpawnReason.TRIAL_SPAWNER -> "SPAWNER"
+            CreatureSpawnEvent.SpawnReason.SPAWNER, CreatureSpawnEvent.SpawnReason.TRIAL_SPAWNER -> "SPAWNER"
 
-            CreatureSpawnEvent.SpawnReason.SPAWNER_EGG,
-            CreatureSpawnEvent.SpawnReason.DISPENSE_EGG -> "SPAWN_EGG"
+            CreatureSpawnEvent.SpawnReason.SPAWNER_EGG, CreatureSpawnEvent.SpawnReason.DISPENSE_EGG -> "SPAWN_EGG"
 
             CreatureSpawnEvent.SpawnReason.NETHER_PORTAL -> "NETHER_PORTAL"
             CreatureSpawnEvent.SpawnReason.BREEDING -> "BREEDING"
