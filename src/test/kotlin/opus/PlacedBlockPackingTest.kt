@@ -2,7 +2,7 @@ package opus
 
 import opus.core.text.DurationParser
 import opus.core.text.TextFormatter
-import opus.core.world.PlacedBlockTracker
+import opus.skills.PlacedBlockTracker
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 

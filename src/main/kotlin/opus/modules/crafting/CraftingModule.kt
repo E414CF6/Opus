@@ -2,12 +2,15 @@ package opus.modules.crafting
 
 import net.kyori.adventure.bossbar.BossBar
 import opus.core.OpusContext
-import opus.core.module.OpusModule
+import opus.core.compat.PlatformCompat
+import opus.core.module.FeatureModule
 import opus.core.scheduler.WarmupRunner
 import opus.core.text.TextFormatter
 import opus.events.OpusRepairEvent
 import opus.events.OpusSalvageEvent
 import opus.events.XpGainReason
+import opus.rpg
+import opus.skills.OpusPlayerState
 import opus.skills.SkillType
 import opus.skills.SubSkillType
 import org.bukkit.Bukkit
@@ -41,7 +44,7 @@ import kotlin.math.roundToInt
 /**
  * Handles Repair, Salvage, Smelting, Alchemy, and Chimaera Wing mechanics.
  */
-class CraftingModule(private val context: OpusContext) : OpusModule {
+class CraftingModule(private val context: OpusContext) : FeatureModule {
     override val id = "crafting"
     override val description = "Repair, Salvage, Smelting, Alchemy, and Chimaera Wing"
 
@@ -68,6 +71,7 @@ class CraftingModule(private val context: OpusContext) : OpusModule {
     override fun listeners(): List<Listener> = listOf(listener)
 
     private fun registerCustomPotionMixes() {
+        if (!PlatformCompat.supportsBrewingRecipe) return
         val awkwardIcon = ItemStack(Material.POTION).apply {
             (itemMeta as? PotionMeta)?.let { meta ->
                 meta.basePotionType = PotionType.AWKWARD
@@ -183,7 +187,7 @@ class CraftingListener(
     private fun handleRepair(player: Player, item: ItemStack): Boolean {
         val entry = repairConfig.findRepairable(item.type) ?: return false
         val meta = item.itemMeta as? Damageable ?: return false
-        if (!repairConfig.allowRepairCustomModelData && meta.hasCustomModelDataComponent()) {
+        if (!repairConfig.allowRepairCustomModelData && PlatformCompat.hasCustomModelData(meta)) {
             context.locale.sendActionBar(player, "gameplay.custom-item-blocked")
             return true
         }
@@ -194,7 +198,7 @@ class CraftingListener(
             return true
         }
 
-        val state = context.players.getCached(player)
+        val state = context.rpg.players.getCached(player)
         val level = state.getLevel(SkillType.REPAIR)
         val reqLevel = if (context.config.retroMode) entry.minimumLevel * 10 else entry.minimumLevel
         if (level < reqLevel) {
@@ -219,19 +223,19 @@ class CraftingListener(
 
         var restore = (maxDurability.toDouble() / entry.minQuantity.toDouble()).roundToInt().coerceAtLeast(1)
 
-        if (context.ranks.hasUnlocked(state, SubSkillType.REPAIR_REPAIR_MASTERY, player)) {
-            val maxBonusPct = context.skillsConfig.double("repair.repair-mastery.max-bonus-percentage", 200.0)
-            val maxLvl = context.skillsConfig.maxBonusLevel("repair.repair-mastery", context.config.retroMode)
-            val bonusPct = context.probability.linearChancePercent(level, maxLvl, maxBonusPct)
+        if (context.rpg.ranks.hasUnlocked(state, SubSkillType.REPAIR_REPAIR_MASTERY, player)) {
+            val maxBonusPct = context.rpg.skillsConfig.double("repair.repair-mastery.max-bonus-percentage", 200.0)
+            val maxLvl = context.rpg.skillsConfig.maxBonusLevel("repair.repair-mastery", context.config.retroMode)
+            val bonusPct = context.rpg.probability.linearChancePercent(level, maxLvl, maxBonusPct)
             restore = (restore * (1.0 + bonusPct / 100.0)).roundToInt()
         }
 
         var isSuper = false
-        if (context.ranks.hasUnlocked(state, SubSkillType.REPAIR_SUPER_REPAIR, player)) {
-            val maxLvl = context.skillsConfig.maxBonusLevel("repair.super-repair", context.config.retroMode)
-            val maxChance = context.skillsConfig.double("repair.super-repair.chance-max", 100.0)
-            if (context.probability.rollPercent(
-                    context.probability.linearChancePercent(
+        if (context.rpg.ranks.hasUnlocked(state, SubSkillType.REPAIR_SUPER_REPAIR, player)) {
+            val maxLvl = context.rpg.skillsConfig.maxBonusLevel("repair.super-repair", context.config.retroMode)
+            val maxChance = context.rpg.skillsConfig.double("repair.super-repair.chance-max", 100.0)
+            if (context.rpg.probability.rollPercent(
+                    context.rpg.probability.linearChancePercent(
                         level,
                         maxLvl,
                         maxChance,
@@ -264,33 +268,37 @@ class CraftingListener(
             context.locale.sendActionBar(player, "gameplay.repair-success", "item" to item.type.name)
         }
 
-        val base = context.experienceConfig.repairBaseXp
-        val matMult = context.experienceConfig.repairMaterialMultiplier(entry.category)
+        val base = context.rpg.experienceConfig.repairBaseXp
+        val matMult = context.rpg.experienceConfig.repairMaterialMultiplier(entry.category)
         val ratio = repairEvent.repairedAmount.toDouble() / maxDurability.toDouble()
         val xp = base * matMult * entry.xpMultiplier * ratio
-        context.progression.awardXp(player, SkillType.REPAIR, xp, XpGainReason.CRAFTING)
+        context.rpg.progression.awardXp(player, SkillType.REPAIR, xp, XpGainReason.CRAFTING)
         return true
     }
 
-    private fun applyArcaneForging(player: Player, state: opus.core.player.OpusPlayerState, item: ItemStack) {
-        val rank = context.ranks.getRank(state, SubSkillType.REPAIR_ARCANE_FORGING)
+    private fun applyArcaneForging(player: Player, state: OpusPlayerState, item: ItemStack) {
+        val rank = context.rpg.ranks.getRank(state, SubSkillType.REPAIR_ARCANE_FORGING)
         val keepChance =
-            if (rank <= 0) 0.0 else context.skillsConfig.doubleAtRank("repair.arcane-forging.keep-chances", rank, 10.0)
-        val downgradeChance = if (rank <= 0) 100.0 else context.skillsConfig.doubleAtRank(
+            if (rank <= 0) 0.0 else context.rpg.skillsConfig.doubleAtRank(
+                "repair.arcane-forging.keep-chances",
+                rank,
+                10.0
+            )
+        val downgradeChance = if (rank <= 0) 100.0 else context.rpg.skillsConfig.doubleAtRank(
             "repair.arcane-forging.downgrade-chances",
             rank,
             75.0
         )
-        val mayLose = context.skillsConfig.boolean("repair.arcane-forging.may-lose-enchants", true)
-        val downgradesEnabled = context.skillsConfig.boolean("repair.arcane-forging.downgrades-enabled", true)
+        val mayLose = context.rpg.skillsConfig.boolean("repair.arcane-forging.may-lose-enchants", true)
+        val downgradesEnabled = context.rpg.skillsConfig.boolean("repair.arcane-forging.downgrades-enabled", true)
 
         var anyLostOrDowngraded = false
         val enchants = item.enchantments.toMap()
         for ((ench, lvl) in enchants) {
-            if (mayLose && !context.probability.rollPercent(keepChance)) {
+            if (mayLose && !context.rpg.probability.rollPercent(keepChance)) {
                 item.removeEnchantment(ench)
                 anyLostOrDowngraded = true
-            } else if (downgradesEnabled && lvl > 1 && context.probability.rollPercent(downgradeChance)) {
+            } else if (downgradesEnabled && lvl > 1 && context.rpg.probability.rollPercent(downgradeChance)) {
                 item.removeEnchantment(ench)
                 item.addUnsafeEnchantment(ench, lvl - 1)
                 anyLostOrDowngraded = true
@@ -303,11 +311,11 @@ class CraftingListener(
 
     private fun handleSalvage(player: Player, item: ItemStack): Boolean {
         val entry = repairConfig.findSalvageable(item.type) ?: return false
-        if (!repairConfig.allowSalvageCustomModelData && item.itemMeta?.hasCustomModelDataComponent() == true) {
+        if (!repairConfig.allowSalvageCustomModelData && PlatformCompat.hasCustomModelData(item.itemMeta)) {
             context.locale.sendActionBar(player, "gameplay.custom-item-blocked")
             return true
         }
-        val state = context.players.getCached(player)
+        val state = context.rpg.players.getCached(player)
         val level = state.getLevel(SkillType.SALVAGE)
         val reqLevel = if (context.config.retroMode) entry.minimumLevel * 10 else entry.minimumLevel
         if (level < reqLevel) {
@@ -323,7 +331,7 @@ class CraftingListener(
         val maxDurability = item.type.maxDurability.toInt().coerceAtLeast(1)
         val damage = (item.itemMeta as? Damageable)?.damage ?: 0
         val durabilityPct = ((maxDurability - damage).toDouble() / maxDurability.toDouble()).coerceIn(0.0, 1.0)
-        val scrapRank = context.ranks.getRank(state, SubSkillType.SALVAGE_SCRAP_COLLECTOR)
+        val scrapRank = context.rpg.ranks.getRank(state, SubSkillType.SALVAGE_SCRAP_COLLECTOR)
         val yieldRatio = (durabilityPct * (0.5 + scrapRank * 0.0625)).coerceIn(0.1, 1.0)
         val outAmount = ceil(entry.maxQuantity * yieldRatio).toInt().coerceIn(1, entry.maxQuantity)
 
@@ -337,7 +345,12 @@ class CraftingListener(
         val leftovers = player.inventory.addItem(ItemStack(entry.salvageMaterial, salvageEvent.salvagedAmount))
         leftovers.values.forEach { player.world.dropItemNaturally(player.location, it) }
 
-        if (enchants.isNotEmpty() && context.ranks.hasUnlocked(state, SubSkillType.SALVAGE_ARCANE_SALVAGE, player)) {
+        if (enchants.isNotEmpty() && context.rpg.ranks.hasUnlocked(
+                state,
+                SubSkillType.SALVAGE_ARCANE_SALVAGE,
+                player
+            )
+        ) {
             extractArcaneSalvageBook(player, state, enchants)
         }
 
@@ -350,20 +363,20 @@ class CraftingListener(
             "material" to entry.salvageMaterial.name,
         )
 
-        val xp = context.experienceConfig.salvageBaseXp * entry.xpMultiplier * durabilityPct
-        context.progression.awardXp(player, SkillType.SALVAGE, xp, XpGainReason.CRAFTING)
+        val xp = context.rpg.experienceConfig.salvageBaseXp * entry.xpMultiplier * durabilityPct
+        context.rpg.progression.awardXp(player, SkillType.SALVAGE, xp, XpGainReason.CRAFTING)
         return true
     }
 
     private fun extractArcaneSalvageBook(
         player: Player,
-        state: opus.core.player.OpusPlayerState,
+        state: OpusPlayerState,
         enchants: Map<Enchantment, Int>,
     ) {
-        val rank = context.ranks.getRank(state, SubSkillType.SALVAGE_ARCANE_SALVAGE)
-        val fullChance = context.skillsConfig.doubleAtRank("salvage.arcane-salvage.extract-full-chances", rank, 2.5)
+        val rank = context.rpg.ranks.getRank(state, SubSkillType.SALVAGE_ARCANE_SALVAGE)
+        val fullChance = context.rpg.skillsConfig.doubleAtRank("salvage.arcane-salvage.extract-full-chances", rank, 2.5)
         val partialChance =
-            context.skillsConfig.doubleAtRank("salvage.arcane-salvage.extract-partial-chances", rank, 2.0)
+            context.rpg.skillsConfig.doubleAtRank("salvage.arcane-salvage.extract-partial-chances", rank, 2.0)
 
         val book = ItemStack(Material.ENCHANTED_BOOK, 1)
         val meta = book.itemMeta as? EnchantmentStorageMeta ?: return
@@ -371,12 +384,12 @@ class CraftingListener(
 
         for ((ench, lvl) in enchants) {
             when {
-                context.probability.rollPercent(fullChance) -> {
+                context.rpg.probability.rollPercent(fullChance) -> {
                     meta.addStoredEnchant(ench, lvl, true)
                     anyAdded = true
                 }
 
-                lvl > 1 && context.probability.rollPercent(partialChance) -> {
+                lvl > 1 && context.rpg.probability.rollPercent(partialChance) -> {
                     meta.addStoredEnchant(ench, lvl - 1, true)
                     anyAdded = true
                 }
@@ -393,8 +406,8 @@ class CraftingListener(
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onFurnaceBurn(event: FurnaceBurnEvent) {
         val ownerUuid = getBlockOwner(event.block) ?: return
-        val state = context.players.getCached(ownerUuid) ?: return
-        val rank = context.ranks.getRank(state, SubSkillType.SMELTING_FUEL_EFFICIENCY)
+        val state = context.rpg.players.getCached(ownerUuid) ?: return
+        val rank = context.rpg.ranks.getRank(state, SubSkillType.SMELTING_FUEL_EFFICIENCY)
         if (rank <= 0) return
         val mult = 1.0 + (rank * 0.33)
         event.burnTime = (event.burnTime * mult).roundToInt().coerceAtLeast(1)
@@ -404,14 +417,14 @@ class CraftingListener(
     fun onFurnaceSmelt(event: FurnaceSmeltEvent) {
         val ownerUuid = getBlockOwner(event.block) ?: return
         val player = Bukkit.getPlayer(ownerUuid)
-        val state = context.players.getCached(ownerUuid) ?: return
+        val state = context.rpg.players.getCached(ownerUuid) ?: return
         val level = state.getLevel(SkillType.SMELTING)
 
-        if (context.ranks.hasUnlocked(state, SubSkillType.SMELTING_SECOND_SMELT, player)) {
-            val maxLvl = context.skillsConfig.maxBonusLevel("smelting.second-smelt", context.config.retroMode)
-            val maxChance = context.skillsConfig.double("smelting.second-smelt.chance-max", 50.0)
-            if (context.probability.rollPercent(
-                    context.probability.linearChancePercent(
+        if (context.rpg.ranks.hasUnlocked(state, SubSkillType.SMELTING_SECOND_SMELT, player)) {
+            val maxLvl = context.rpg.skillsConfig.maxBonusLevel("smelting.second-smelt", context.config.retroMode)
+            val maxChance = context.rpg.skillsConfig.double("smelting.second-smelt.chance-max", 50.0)
+            if (context.rpg.probability.rollPercent(
+                    context.rpg.probability.linearChancePercent(
                         level,
                         maxLvl,
                         maxChance,
@@ -430,9 +443,9 @@ class CraftingListener(
         }
 
         if (player != null) {
-            val xp = context.experienceConfig.smeltingXp(event.source.type)
+            val xp = context.rpg.experienceConfig.smeltingXp(event.source.type)
             if (xp > 0.0) {
-                context.progression.awardXp(player, SkillType.SMELTING, xp, XpGainReason.CRAFTING)
+                context.rpg.progression.awardXp(player, SkillType.SMELTING, xp, XpGainReason.CRAFTING)
             }
         }
     }
@@ -441,10 +454,10 @@ class CraftingListener(
     fun onFurnaceExtract(event: FurnaceExtractEvent) {
         if (event.expToDrop <= 0) return
         val player = event.player
-        val state = context.players.getCached(player)
-        if (!context.ranks.hasUnlocked(state, SubSkillType.SMELTING_UNDERSTANDING_THE_ART, player)) return
-        val rank = context.ranks.getRank(state, SubSkillType.SMELTING_UNDERSTANDING_THE_ART)
-        val mult = context.skillsConfig.intAtRank("smelting.vanilla-xp-multipliers", rank, 1).coerceAtLeast(1)
+        val state = context.rpg.players.getCached(player)
+        if (!context.rpg.ranks.hasUnlocked(state, SubSkillType.SMELTING_UNDERSTANDING_THE_ART, player)) return
+        val rank = context.rpg.ranks.getRank(state, SubSkillType.SMELTING_UNDERSTANDING_THE_ART)
+        val mult = context.rpg.skillsConfig.intAtRank("smelting.vanilla-xp-multipliers", rank, 1).coerceAtLeast(1)
         if (mult > 1) {
             event.expToDrop *= mult
         }
@@ -458,17 +471,17 @@ class CraftingListener(
         val player = event.whoClicked as? Player ?: return
         setBlockOwner(holder.block, player.uniqueId)
 
-        val state = context.players.getCached(player)
-        if (context.ranks.hasUnlocked(state, SubSkillType.ALCHEMY_CATALYSIS, player)) {
-            val maxLvl = context.skillsConfig.maxBonusLevel("alchemy.catalysis", context.config.retroMode)
-            val minSpeed = context.skillsConfig.double("alchemy.catalysis.min-speed", 1.0)
-            val maxSpeed = context.skillsConfig.double("alchemy.catalysis.max-speed", 4.0)
+        val state = context.rpg.players.getCached(player)
+        if (context.rpg.ranks.hasUnlocked(state, SubSkillType.ALCHEMY_CATALYSIS, player)) {
+            val maxLvl = context.rpg.skillsConfig.maxBonusLevel("alchemy.catalysis", context.config.retroMode)
+            val minSpeed = context.rpg.skillsConfig.double("alchemy.catalysis.min-speed", 1.0)
+            val maxSpeed = context.rpg.skillsConfig.double("alchemy.catalysis.max-speed", 4.0)
             val ratio = (state.getLevel(SkillType.ALCHEMY).toDouble() / maxLvl.toDouble()).coerceIn(0.0, 1.0)
             val speed = minSpeed + (maxSpeed - minSpeed) * ratio
             val targetTicks = (400.0 / speed.coerceAtLeast(1.0)).roundToInt().coerceIn(40, 400)
             context.scheduler.runAtLocation(holder.location) {
                 val fresh = holder.location.block.state as? BrewingStand ?: return@runAtLocation
-                fresh.recipeBrewTime = targetTicks
+                PlatformCompat.setBrewingStandTime(fresh, targetTicks)
                 fresh.update()
             }
         }
@@ -478,11 +491,11 @@ class CraftingListener(
     fun onBrew(event: BrewEvent) {
         val ownerUuid = getBlockOwner(event.block) ?: return
         val player = Bukkit.getPlayer(ownerUuid) ?: return
-        val state = context.players.getCached(player)
+        val state = context.rpg.players.getCached(player)
         val ingredient = event.contents.ingredient ?: return
 
         val reqRank = alchemyConfig.ingredientRankRequired[ingredient.type] ?: 1
-        val concRank = context.ranks.getRank(state, SubSkillType.ALCHEMY_CONCOCTIONS)
+        val concRank = context.rpg.ranks.getRank(state, SubSkillType.ALCHEMY_CONCOCTIONS)
         if (concRank < reqRank) {
             event.isCancelled = true
             context.locale.sendActionBar(player, "gameplay.alchemy-need-rank", "rank" to reqRank)
@@ -506,8 +519,8 @@ class CraftingListener(
             }
         }
 
-        val stageXp = context.experienceConfig.alchemyStageXp[reqRank.coerceIn(1, 5)] ?: 666.0
-        context.progression.awardXp(player, SkillType.ALCHEMY, stageXp, XpGainReason.CRAFTING)
+        val stageXp = context.rpg.experienceConfig.alchemyStageXp[reqRank.coerceIn(1, 5)] ?: 666.0
+        context.rpg.progression.awardXp(player, SkillType.ALCHEMY, stageXp, XpGainReason.CRAFTING)
     }
 
     private fun tryChimaeraWing(player: Player, item: ItemStack) {
@@ -521,7 +534,7 @@ class CraftingListener(
             )
             return
         }
-        val dest = player.respawnLocation
+        val dest = PlatformCompat.getRespawnLocation(player)
         if (dest == null) {
             context.locale.sendActionBar(player, "gameplay.chimaera-no-bed")
             return
@@ -529,7 +542,7 @@ class CraftingListener(
 
         val warmupSec = context.config.chimaeraWarmupSeconds
         WarmupRunner.start(
-            context = context,
+            host = context,
             player = player,
             channel = "chimaera_warmup",
             warmupSeconds = warmupSec,

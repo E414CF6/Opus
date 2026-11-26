@@ -78,4 +78,25 @@ class LocaleParityTest {
 
         assertEquals(emptySet<String>(), missing, "Missing locale keys referenced in source code")
     }
+
+    @Test
+    fun `opus core package stays strictly domain-agnostic with zero RPG or module imports`() {
+        val coreRoot = Path.of("src/main/kotlin/opus/core")
+        val forbiddenImport = Regex("""^import\s+opus\.(skills|modules|events|integration|rpg)\b""")
+        val violations = mutableListOf<String>()
+
+        Files.walk(coreRoot).use { stream ->
+            stream.filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }.forEach { file ->
+                val rel = coreRoot.relativize(file)
+                Files.readAllLines(file).forEachIndexed { idx, line ->
+                    val trimmed = line.trim()
+                    if (forbiddenImport.containsMatchIn(trimmed)) {
+                        violations += "$rel:${idx + 1}: $trimmed"
+                    }
+                }
+            }
+        }
+
+        assertEquals(emptyList<String>(), violations, "opus.core must remain domain-agnostic")
+    }
 }

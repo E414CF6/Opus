@@ -1,6 +1,5 @@
 package opus.skills
 
-import opus.core.config.ExperienceConfig
 import org.bukkit.permissions.Permissible
 
 /**

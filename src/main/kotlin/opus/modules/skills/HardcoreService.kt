@@ -1,10 +1,11 @@
 package opus.modules.skills
 
 import opus.core.OpusContext
-import opus.core.player.OpusPlayerState
 import opus.events.OpusHardcoreStatLossEvent
 import opus.events.OpusVampirismEvent
 import opus.integration.WorldGuardHook
+import opus.rpg
+import opus.skills.OpusPlayerState
 import opus.skills.SkillType
 import org.bukkit.Bukkit
 import org.bukkit.event.EventHandler
@@ -45,7 +46,7 @@ class HardcoreService(private val context: OpusContext) : Listener {
     }
 
     private fun applyDeathStatLoss(victim: org.bukkit.entity.Player) {
-        val state = context.players.getCached(victim)
+        val state = context.rpg.players.getCached(victim)
         val delta = computeDeathStatLoss(
             state = state,
             percentage = context.config.hardcoreStatLossPercentage,
@@ -75,8 +76,8 @@ class HardcoreService(private val context: OpusContext) : Listener {
     }
 
     private fun applyVampirism(killer: org.bukkit.entity.Player, victim: org.bukkit.entity.Player) {
-        val killerState = context.players.getCached(killer)
-        val victimState = context.players.getCached(victim)
+        val killerState = context.rpg.players.getCached(killer)
+        val victimState = context.rpg.players.getCached(victim)
         val delta = computeVampirism(
             killerState = killerState,
             victimState = victimState,

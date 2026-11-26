@@ -1,8 +1,7 @@
 package opus.skills
 
+import opus.core.compat.PlatformCompat
 import opus.core.config.OpusConfig
-import opus.core.config.SkillsConfig
-import org.bukkit.attribute.Attribute
 import org.bukkit.entity.Player
 import java.util.concurrent.ThreadLocalRandom
 
@@ -15,6 +14,10 @@ class ProbabilityService(
     private val perks: PerksService? = null,
 ) {
 
+    private val luckAttribute by lazy {
+        PlatformCompat.resolveAttribute("LUCK", "GENERIC_LUCK")
+    }
+
     fun linearChancePercent(
         skillLevel: Int,
         maxBonusLevel: Int,
@@ -26,7 +29,7 @@ class ProbabilityService(
         val cappedLevel = skillLevel.coerceIn(0, maxBonusLevel.coerceAtLeast(1))
         var chance = (cappedLevel.toDouble() / maxBonusLevel.toDouble()) * chanceMax
         if (player != null) {
-            val luck = player.getAttribute(Attribute.LUCK)?.value ?: 0.0
+            val luck = luckAttribute?.let { attr -> player.getAttribute(attr)?.value } ?: 0.0
             if (luck != 0.0) {
                 chance *= (1.0 + (luck * 0.05)).coerceAtLeast(0.1)
             }

@@ -5,7 +5,6 @@ import opus.core.OpusContext
 import opus.core.command.AliasMatcher
 import opus.core.command.SpecializedCommandExecutor
 import opus.core.config.YamlConfigFile
-import opus.core.player.OpusPlayerState
 import org.bukkit.Bukkit
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Player

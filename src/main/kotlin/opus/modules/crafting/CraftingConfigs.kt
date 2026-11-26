@@ -1,10 +1,10 @@
 package opus.modules.crafting
 
+import opus.core.compat.PlatformCompat
 import opus.core.config.YamlConfigFile
 import org.bukkit.Color
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
-import org.bukkit.Registry
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.plugin.Plugin
 import org.bukkit.potion.PotionEffectType
@@ -197,7 +197,7 @@ class AlchemyConfig(plugin: Plugin? = null, initialYaml: YamlConfiguration? = nu
                 val sub = recSec.getConfigurationSection(ingKey) ?: continue
                 val effName = (sub.getString("effect", "NIGHT_VISION") ?: "NIGHT_VISION").lowercase()
                 val effKey = NamespacedKey.minecraft(effName)
-                val effType = Registry.MOB_EFFECT.get(effKey) ?: continue
+                val effType = PlatformCompat.resolvePotionEffectByKey(effKey) ?: continue
                 val rgb = sub.getInt("color-rgb", 0x38BDF8)
                 customRecipes[ing] = CustomPotionRecipe(
                     ingredient = ing,

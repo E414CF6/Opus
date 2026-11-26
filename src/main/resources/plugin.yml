@@ -1,11 +1,19 @@
 name: Opus
 version: '${version}'
 main: opus.Opus
-api-version: '26.3'
+api-version: '1.20'
 folia-supported: true
 load: POSTWORLD
 softdepend: [ PlaceholderAPI, WorldGuard ]
-description: Modern Kotlin RPG Skills & Progression Plugin for Paper 26.3
+description: Modern Kotlin RPG Skills & Progression Plugin for Paper (1.20.4-26.3+)
+authors: [ Opus ]
+
+commands:
+  opus:
+    description: Open the Opus RPG hub GUI or execute subcommands
+    usage: /opus [skills|party|mmohud|mctop|mcrank|mmoinspect|mccooldown|xprate|reload|admin|status|aliases|alias]
+    aliases: [ mcmmo ]
+    permission: opus.command
 
 permissions:
   opus.admin:
@@ -61,3 +69,6 @@ permissions:
   opus.command.mcgod:
     description: Grants access to /mcgod command
     default: op
+  opus.customalias.*:
+    description: Grants access to custom Opus aliases
+    default: true

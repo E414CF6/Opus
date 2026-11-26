@@ -2,6 +2,7 @@ package opus.modules.gathering
 
 import opus.core.OpusContext
 import opus.events.XpGainReason
+import opus.rpg
 import opus.skills.SkillType
 import org.bukkit.Material
 import org.bukkit.block.Block
@@ -53,7 +54,7 @@ class PlantCollapseService(private val context: OpusContext) {
         val type = origin.type
         if (!isTallPlant(type)) return
 
-        val maxBlocks = if (context.experienceConfig.limitTallPlantFarming) {
+        val maxBlocks = if (context.rpg.experienceConfig.limitTallPlantFarming) {
             when (type) {
                 Material.SUGAR_CANE, Material.CACTUS -> 3
                 Material.BAMBOO -> 16
@@ -73,8 +74,8 @@ class PlantCollapseService(private val context: OpusContext) {
                 mat == type || (type == Material.KELP_PLANT && mat == Material.KELP) || (type == Material.KELP && mat == Material.KELP_PLANT)
             if (!matches) break
             scanned++
-            if (!context.placedBlocks.isPlayerPlaced(cursor)) {
-                val xp = context.experienceConfig.blockXp(SkillType.HERBALISM, mat)
+            if (!context.rpg.placedBlocks.isPlayerPlaced(cursor)) {
+                val xp = context.rpg.experienceConfig.blockXp(SkillType.HERBALISM, mat)
                 if (xp > 0.0) {
                     val pos = BlockPos.of(cursor)
                     if (claimedPositions.putIfAbsent(pos, taskId) == null) {
@@ -102,7 +103,7 @@ class PlantCollapseService(private val context: OpusContext) {
                 }
                 if (entry.block.type != entry.expectedType) {
                     accumulatedXp += entry.xp
-                    context.placedBlocks.clearPlaced(entry.block)
+                    context.rpg.placedBlocks.clearPlaced(entry.block)
                     claimedPositions.remove(entry.pos, taskId)
                     it.remove()
                 }
@@ -114,7 +115,7 @@ class PlantCollapseService(private val context: OpusContext) {
                 pending.clear()
                 scheduled.cancel()
                 if (accumulatedXp > 0.0 && player.isOnline) {
-                    context.progression.awardXp(player, SkillType.HERBALISM, accumulatedXp, XpGainReason.GATHERING)
+                    context.rpg.progression.awardXp(player, SkillType.HERBALISM, accumulatedXp, XpGainReason.GATHERING)
                 }
             }
         }

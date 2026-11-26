@@ -1,16 +1,11 @@
 package opus
 
-import com.mojang.brigadier.Command
-import com.mojang.brigadier.arguments.StringArgumentType
-import io.papermc.paper.command.brigadier.Commands
-import io.papermc.paper.plugin.configuration.PluginMeta
 import net.kyori.adventure.text.Component
 import opus.core.command.*
 import opus.core.ui.ActionBarPriority
 import opus.core.ui.ActionBarService
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import java.lang.reflect.Proxy
 import java.util.*
 
 class CommandAliasTest {
@@ -104,63 +99,58 @@ class CommandAliasTest {
     }
 
     @Test
-    fun `OpusCommandRegistrar captures subcommands under root and merges colliding literals`() {
-        val registry = OpusCommandRegistry()
-        var delegateRegisterCalls = 0
+    fun `CommandRegistry stores subcommands, aliases, and disabled standalone alias exclusions`() {
+        val registry = CommandRegistry()
+        registry.registerSubcommand(
+            name = "skills",
+            description = "Open Opus RPG skills GUI or view stats",
+            permission = "opus.command",
+            aliases = listOf("mcstats", "stats"),
+            disabledStandaloneAliases = listOf("stats"),
+        ) { _, _ -> true }
 
-        val fakeDelegate = Proxy.newProxyInstance(
-            Commands::class.java.classLoader,
-            arrayOf(Commands::class.java),
-        ) { _, method, _ ->
-            if (method.name.startsWith("register")) {
-                delegateRegisterCalls++
-                emptySet<String>()
-            } else {
-                null
-            }
-        } as Commands
+        registry.registerSubcommand(
+            name = "inspect",
+            description = "Inspect stats",
+            permission = "opus.command",
+            aliases = listOf("mcinspect", "mmoinspect"),
+            disabledStandaloneAliases = listOf("inspect"),
+        ) { _, _ -> true }
 
-        val fakeMeta = Proxy.newProxyInstance(
-            PluginMeta::class.java.classLoader,
-            arrayOf(PluginMeta::class.java),
-        ) { _, method, _ ->
-            when (method.name) {
-                "getName" -> "Opus"
-                "getVersion" -> "1.0"
-                else -> null
-            }
-        } as PluginMeta
+        registry.registerSubcommand(
+            name = "adminchat",
+            description = "Toggle admin chat",
+            permission = "opus.adminchat",
+            aliases = listOf("opusac", "ac", "a"),
+            disabledStandaloneAliases = listOf("ac", "a"),
+        ) { _, _ -> true }
 
-        val intercepting = OpusCommandRegistrar(fakeDelegate, registry)
+        registry.registerSubcommand(
+            name = "menu",
+            description = "Open hub",
+            permission = "opus.command",
+            standaloneByDefault = false,
+        ) { _, _ -> true }
 
-        val skillsNode = Commands.literal("skills")
-            .then(Commands.argument("mode", StringArgumentType.word()).executes { Command.SINGLE_SUCCESS })
-            .executes { Command.SINGLE_SUCCESS }
-            .build()
-        intercepting.register(fakeMeta, skillsNode, "Open Opus RPG skills GUI", listOf("mcstats", "stats"))
+        assertEquals(4, registry.allSubcommands().size)
+        val skills = registry.getSubcommand("mcstats")
+        assertNotNull(skills)
+        assertEquals("skills", skills!!.name)
+        assertTrue("stats" in skills.disabledStandaloneAliases)
+        assertFalse("mcstats" in skills.disabledStandaloneAliases)
 
-        val infoModuleNode = Commands.literal("info")
-            .requires { it.sender.hasPermission("opus.admin") }
-            .then(Commands.argument("target", StringArgumentType.word()).executes { Command.SINGLE_SUCCESS })
-            .build()
-        intercepting.register(fakeMeta, infoModuleNode, "View player info", emptyList())
+        val inspect = registry.getSubcommand("mmoinspect")
+        assertNotNull(inspect)
+        assertTrue("inspect" in inspect!!.disabledStandaloneAliases)
+        assertFalse("mcinspect" in inspect.disabledStandaloneAliases)
 
-        assertEquals(0, delegateRegisterCalls, "Subcommands must not be registered directly on Paper root")
-        assertEquals(2, registry.allSubcommands().size)
-        assertEquals(listOf("mcstats", "stats"), registry.getSubcommand("skills")?.aliases)
+        val adminChat = registry.getSubcommand("opusac")
+        assertNotNull(adminChat)
+        assertEquals(setOf("ac", "a"), adminChat!!.disabledStandaloneAliases)
 
-        val rootBuilder = Commands.literal("opus")
-            .then(Commands.literal("info").executes { Command.SINGLE_SUCCESS })
-        val rootNode = registry.buildRootNode(rootBuilder)
-
-        assertNotNull(rootNode.getChild("skills"))
-        val mergedInfo = rootNode.getChild("info")
-        assertNotNull(mergedInfo)
-        assertNotNull(mergedInfo.command, "Root /opus info handler must remain intact")
-        assertNotNull(mergedInfo.getChild("target"), "Module /opus info <target> child must be merged")
-
-        assertNotNull(registry.localDispatcher.root.getChild("opus").getChild("skills"))
-        assertNotNull(registry.localDispatcher.root.getChild("mcmmo").getChild("skills"))
+        val menu = registry.getSubcommand("menu")
+        assertNotNull(menu)
+        assertFalse(menu!!.standaloneByDefault)
     }
 
     @Test

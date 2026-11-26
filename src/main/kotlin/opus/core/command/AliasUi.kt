@@ -1,15 +1,12 @@
 package opus.core.command
 
 import net.kyori.adventure.bossbar.BossBar
-import opus.core.OpusContext
-import opus.core.gui.MenuItems
-import opus.core.gui.MenuWindow
-import opus.core.gui.OpusDialogs
-import opus.modules.skills.SkillDialogs
-import opus.skills.HudFeedbackHook
+import opus.core.CoreHost
+import opus.core.compat.PlatformCompat
+import opus.core.ui.MenuItems
+import opus.core.ui.MenuWindow
 import org.bukkit.Material
 import org.bukkit.entity.Player
-import org.bukkit.inventory.ItemStack
 
 enum class AliasFilter {
     ALL,
@@ -26,18 +23,20 @@ object AliasGui {
     private const val BOSSBAR_CHANNEL = "alias_admin_feedback"
 
     fun open(
-        context: OpusContext,
+        host: CoreHost,
         player: Player,
         filter: AliasFilter = AliasFilter.ALL,
         page: Int = 1,
+        onBack: ((Player) -> Unit)? = null,
     ) {
-        if (!player.hasPermission("opus.admin")) {
-            context.locale.send(player, "general.no-permission")
+        if (!player.hasPermission(host.adminPermission)) {
+            host.locale.send(player, "general.no-permission")
             return
         }
+        val aliasService = host.getService(CommandAliasService::class.java) ?: return
 
-        val regular = context.commandAliases.getRegularAliases().values.toList()
-        val custom = context.commandAliases.getCustomAliasEntries().values.toList()
+        val regular = aliasService.getRegularAliases().values.toList()
+        val custom = aliasService.getCustomAliasEntries().values.toList()
         val entries = when (filter) {
             AliasFilter.ALL -> regular + custom
             AliasFilter.REGULAR -> regular
@@ -49,7 +48,7 @@ object AliasGui {
         val safePage = page.coerceIn(1, totalPages)
         val slice = entries.drop((safePage - 1) * perPage).take(perPage)
 
-        val locale = context.locale
+        val locale = host.locale
         val title = locale.component(
             "gui.alias-title",
             mapOf("page" to safePage.toString(), "total" to totalPages.toString()),
@@ -57,7 +56,6 @@ object AliasGui {
         val menu = MenuWindow(title, 6)
         menu.fillBorder(borderGlass)
 
-        // Filter bar in top row
         val allLabel = locale.raw("gui.alias-filter-all")
         val regLabel = locale.raw("gui.alias-filter-regular")
         val cusLabel = locale.raw("gui.alias-filter-custom")
@@ -68,7 +66,7 @@ object AliasGui {
                 if (filter == AliasFilter.ALL) "<aqua><bold>$allLabel</bold></aqua>" else "<gray>$allLabel</gray>",
             ),
         ) { click ->
-            open(context, click.player, AliasFilter.ALL, 1)
+            open(host, click.player, AliasFilter.ALL, 1, onBack)
         }
         menu.set(
             4,
@@ -77,7 +75,7 @@ object AliasGui {
                 if (filter == AliasFilter.REGULAR) "<aqua><bold>$regLabel</bold></aqua>" else "<gray>$regLabel</gray>",
             ),
         ) { click ->
-            open(context, click.player, AliasFilter.REGULAR, 1)
+            open(host, click.player, AliasFilter.REGULAR, 1, onBack)
         }
         menu.set(
             6,
@@ -86,16 +84,10 @@ object AliasGui {
                 if (filter == AliasFilter.CUSTOM) "<aqua><bold>$cusLabel</bold></aqua>" else "<gray>$cusLabel</gray>",
             ),
         ) { click ->
-            open(context, click.player, AliasFilter.CUSTOM, 1)
+            open(host, click.player, AliasFilter.CUSTOM, 1, onBack)
         }
 
-        val slots = buildList {
-            for (row in 1..4) {
-                for (col in 1..7) {
-                    add(row * 9 + col)
-                }
-            }
-        }
+        val slots = MenuWindow.CONTENT_SLOTS
 
         slice.forEachIndexed { idx, entry ->
             val slot = slots.getOrNull(idx) ?: return@forEachIndexed
@@ -147,96 +139,82 @@ object AliasGui {
             menu.set(slot, MenuItems.item(material, name, lore)) { click ->
                 val p = click.player
                 if (entry.type == CommandAliasType.CUSTOM) {
-                    AliasDialogs.openCustomAliasDialog(context, p, entry) {
-                        open(context, p, filter, safePage)
+                    AliasDialogs.openCustomAliasDialog(host, p, entry, onBack) {
+                        open(host, p, filter, safePage, onBack)
                     }
                     return@set
                 }
                 when {
                     click.clickType.isShiftClick -> {
-                        val updated = context.commandAliases.updateRegularAlias(
+                        val updated = aliasService.updateRegularAlias(
                             entry.alias,
                             tabComplete = !entry.tabComplete,
                         )
                         if (updated != null) {
-                            emitFeedback(
-                                context,
-                                p,
-                                "gui.alias-updated",
-                                "alias" to updated.alias,
-                            )
+                            emitFeedback(host, p, "gui.alias-updated", "alias" to updated.alias)
                         }
-                        open(context, p, filter, safePage)
+                        open(host, p, filter, safePage, onBack)
                     }
 
                     click.clickType.isRightClick && entry.type == CommandAliasType.BASE -> {
-                        val updated = context.commandAliases.updateRegularAlias(
+                        val updated = aliasService.updateRegularAlias(
                             entry.alias,
                             baseDisabled = !entry.baseDisabled,
                         )
                         if (updated != null) {
-                            emitFeedback(
-                                context,
-                                p,
-                                "gui.alias-updated",
-                                "alias" to updated.alias,
-                            )
+                            emitFeedback(host, p, "gui.alias-updated", "alias" to updated.alias)
                         }
-                        open(context, p, filter, safePage)
+                        open(host, p, filter, safePage, onBack)
                     }
 
                     click.clickType.isLeftClick -> {
-                        val updated = context.commandAliases.updateRegularAlias(
+                        val updated = aliasService.updateRegularAlias(
                             entry.alias,
                             enabled = !entry.enabled,
                         )
                         if (updated != null) {
-                            emitFeedback(
-                                context,
-                                p,
-                                "gui.alias-updated",
-                                "alias" to updated.alias,
-                            )
+                            emitFeedback(host, p, "gui.alias-updated", "alias" to updated.alias)
                         }
-                        open(context, p, filter, safePage)
+                        open(host, p, filter, safePage, onBack)
                     }
 
                     else -> {
-                        AliasDialogs.openRegularAliasDialog(context, p, entry) {
-                            open(context, p, filter, safePage)
+                        AliasDialogs.openRegularAliasDialog(host, p, entry, onBack) {
+                            open(host, p, filter, safePage, onBack)
                         }
                     }
                 }
             }
         }
 
-        // Bottom controls
         menu.set(45, MenuItems.item(Material.ANVIL, locale.raw("gui.alias-btn-create"))) { click ->
-            AliasDialogs.openCustomAliasDialog(context, click.player, null) {
-                open(context, click.player, filter, safePage)
+            AliasDialogs.openCustomAliasDialog(host, click.player, null, onBack) {
+                open(host, click.player, filter, safePage, onBack)
             }
         }
         menu.set(46, MenuItems.item(Material.BOOK, locale.raw("gui.alias-btn-dialog"))) { click ->
-            AliasDialogs.openOverviewDialog(context, click.player)
+            AliasDialogs.openOverviewDialog(host, click.player, onBack)
         }
         menu.setFooterNav(
-            context = context,
+            host = host,
             page = safePage,
             totalPages = totalPages,
             prevSlot = 48,
             nextSlot = 50,
-            onPrev = { open(context, player, filter, safePage - 1) },
-            onNext = { open(context, player, filter, safePage + 1) },
+            onPrev = { open(host, player, filter, safePage - 1, onBack) },
+            onNext = { open(host, player, filter, safePage + 1, onBack) },
         )
-        menu.set(49, MenuItems.backButton(context)) { click ->
-            SkillDialogs.openAdminDialog(context, click.player)
+        if (onBack != null) {
+            menu.set(49, MenuItems.backButton(host)) { click ->
+                onBack(click.player)
+            }
         }
         menu.set(52, MenuItems.item(Material.CLOCK, locale.raw("gui.alias-btn-reload"))) { click ->
-            context.commandAliases.reload()
-            emitFeedback(context, click.player, "gui.alias-reloaded")
-            open(context, click.player, filter, safePage)
+            aliasService.reload()
+            emitFeedback(host, click.player, "gui.alias-reloaded")
+            open(host, click.player, filter, safePage, onBack)
         }
-        menu.set(53, MenuItems.closeButton(context)) { click ->
+        menu.set(53, MenuItems.closeButton(host)) { click ->
             click.player.closeInventory()
         }
 
@@ -244,276 +222,84 @@ object AliasGui {
     }
 
     internal fun emitFeedback(
-        context: OpusContext,
+        host: CoreHost,
         player: Player,
         localeKey: String,
         vararg placeholders: Pair<String, Any?>,
     ) {
-        context.actionBar.pushTransientLocale(player, localeKey, *placeholders)
+        host.actionBar.pushTransientLocale(player, localeKey, *placeholders)
         val map = placeholders.associate { it.first to (it.second?.toString() ?: "") }
-        context.getService<HudFeedbackHook>()?.showChannelBossBar(
+        host.bossBar.showTemporary(
             player = player,
-            channel = BOSSBAR_CHANNEL,
-            title = context.locale.component(localeKey, map),
-            color = BossBar.Color.PURPLE,
+            key = BOSSBAR_CHANNEL,
+            title = host.locale.component(localeKey, map),
             progress = 1.0f,
+            color = BossBar.Color.PURPLE,
             durationTicks = 60L,
         )
     }
 }
 
 /**
- * Paper 26.3 [io.papermc.paper.dialog.Dialog] forms and confirmations for managing command aliases.
+ * Dialog entrypoints for command alias management, delegating to Paper Dialogs (`1.21.6+`)
+ * or falling back to [AliasGui] on older versions.
  */
 object AliasDialogs {
 
-    fun openOverviewDialog(context: OpusContext, admin: Player) {
-        if (!admin.hasPermission("opus.admin")) {
-            context.locale.send(admin, "general.no-permission")
+    fun openOverviewDialog(
+        host: CoreHost,
+        admin: Player,
+        onBack: ((Player) -> Unit)? = null,
+    ) {
+        if (!admin.hasPermission(host.adminPermission)) {
+            host.locale.send(admin, "general.no-permission")
             return
         }
-        val locale = context.locale
-        val regular = context.commandAliases.getRegularAliases().values
-        val enabledCount = regular.count { it.enabled }
-        val customCount = context.commandAliases.getCustomAliases().size
-
-        val body = listOf(
-            OpusDialogs.itemBody(
-                ItemStack(Material.NAME_TAG),
-                descriptionRaw = locale.raw(
-                    "general.aliases-summary",
-                    "enabled" to enabledCount,
-                    "total" to regular.size,
-                    "custom" to customCount,
-                ),
-            ),
-            OpusDialogs.plainBody(locale.raw("dialog.alias-overview-desc")),
-        )
-
-        val actions = listOf(
-            OpusDialogs.actionButton(
-                locale.raw("dialog.alias-btn-gui"),
-                width = 150,
-                action = OpusDialogs.customAction(context) { _, p -> AliasGui.open(context, p) },
-            ),
-            OpusDialogs.actionButton(
-                locale.raw("dialog.alias-btn-create"),
-                width = 150,
-                action = OpusDialogs.customAction(context) { _, p ->
-                    openCustomAliasDialog(context, p, null) { openOverviewDialog(context, p) }
-                },
-            ),
-            OpusDialogs.actionButton(
-                locale.raw("dialog.alias-btn-reload"),
-                width = 150,
-                action = OpusDialogs.customAction(context) { _, p ->
-                    context.commandAliases.reload()
-                    AliasGui.emitFeedback(context, p, "gui.alias-reloaded")
-                    openOverviewDialog(context, p)
-                },
-            ),
-            OpusDialogs.actionButton(
-                locale.raw("gui.back"),
-                width = 150,
-                action = OpusDialogs.customAction(context) { _, p -> SkillDialogs.openAdminDialog(context, p) },
-            ),
-        )
-
-        OpusDialogs.showMultiAction(
-            context = context,
-            player = admin,
-            title = locale.component("dialog.alias-overview-title"),
-            body = body,
-            actions = actions,
-            columns = 2,
-        )
+        if (PlatformCompat.supportsDialogs) {
+            PaperAliasDialogs.openOverviewDialog(host, admin, onBack)
+        } else {
+            AliasGui.open(host, admin, onBack = onBack)
+        }
     }
 
     fun openCustomAliasDialog(
-        context: OpusContext,
+        host: CoreHost,
         admin: Player,
         existing: CommandAliasEntry?,
+        onBack: ((Player) -> Unit)? = null,
         onDone: (() -> Unit)? = null,
     ) {
-        if (!admin.hasPermission("opus.admin")) {
-            context.locale.send(admin, "general.no-permission")
+        if (!admin.hasPermission(host.adminPermission)) {
+            host.locale.send(admin, "general.no-permission")
             return
         }
-        val locale = context.locale
-        val inputs = listOf(
-            OpusDialogs.textInput(
-                key = "alias_name",
-                labelRaw = locale.raw("dialog.alias-input-name"),
-                initial = existing?.alias.orEmpty(),
-                maxLength = 48,
-            ),
-            OpusDialogs.textInput(
-                key = "commands",
-                labelRaw = locale.raw("dialog.alias-input-commands"),
-                initial = existing?.commands?.joinToString(" && ").orEmpty(),
-                maxLength = 256,
-            ),
-            OpusDialogs.boolInput("enabled", locale.raw("dialog.alias-input-enabled"), existing?.enabled ?: true),
-            OpusDialogs.boolInput("tab", locale.raw("dialog.alias-input-tab"), existing?.tabComplete ?: true),
-            OpusDialogs.boolInput("perm", locale.raw("dialog.alias-input-perm"), existing?.requiresPerm ?: false),
-            OpusDialogs.boolInput("exact", locale.raw("dialog.alias-input-exact"), existing?.exact ?: false),
-        )
-
-        val saveBtn = OpusDialogs.actionButton(
-            locale.raw("dialog.save"),
-            width = 140,
-            action = OpusDialogs.customAction(context) { response, p ->
-                val rawName = response.getText("alias_name")?.trim().orEmpty().removePrefix("/")
-                val rawCmds = response.getText("commands")?.trim().orEmpty()
-                if (rawName.isEmpty() || rawCmds.isEmpty()) {
-                    locale.send(p, "dialog.alias-invalid-input")
-                    context.actionBar.pushTransientLocale(p, "dialog.alias-invalid-input")
-                    return@customAction
-                }
-                val cmdList = rawCmds.split("&&")
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-                if (cmdList.isEmpty()) {
-                    locale.send(p, "dialog.alias-invalid-input")
-                    return@customAction
-                }
-                if (existing != null && !existing.alias.equals(rawName, ignoreCase = true)) {
-                    context.commandAliases.removeCustomAlias(existing.alias)
-                }
-                context.commandAliases.setCustomAlias(
-                    name = rawName,
-                    commands = cmdList,
-                    enabled = response.getBoolean("enabled") ?: true,
-                    tabComplete = response.getBoolean("tab") ?: true,
-                    requiresPerm = response.getBoolean("perm") ?: false,
-                    exact = response.getBoolean("exact") ?: false,
-                    customTabs = existing?.customTabs ?: emptyList(),
-                )
-                locale.send(p, "commands.alias-created", "name" to rawName, "action" to cmdList.joinToString(" && "))
-                AliasGui.emitFeedback(context, p, "commands.alias-created", "name" to rawName, "action" to cmdList.first())
-                onDone?.invoke()
-            },
-        )
-
-        val actions = buildList {
-            add(saveBtn)
-            if (existing != null) {
-                add(
-                    OpusDialogs.actionButton(
-                        locale.raw("dialog.alias-btn-delete"),
-                        width = 140,
-                        action = OpusDialogs.customAction(context) { _, p ->
-                            OpusDialogs.showConfirm(
-                                context = context,
-                                player = p,
-                                title = locale.component("dialog.alias-delete-confirm-title"),
-                                body = listOf(
-                                    OpusDialogs.plainBody(
-                                        locale.raw("dialog.alias-delete-confirm-body", "name" to existing.alias)
-                                    )
-                                ),
-                                onConfirm = { cp ->
-                                    if (context.commandAliases.removeCustomAlias(existing.alias)) {
-                                        locale.send(cp, "commands.alias-deleted", "name" to existing.alias)
-                                        AliasGui.emitFeedback(context, cp, "commands.alias-deleted", "name" to existing.alias)
-                                    }
-                                    onDone?.invoke()
-                                },
-                            )
-                        },
-                    )
-                )
-            }
-            add(
-                OpusDialogs.actionButton(
-                    locale.raw("gui.back"),
-                    width = 140,
-                    action = OpusDialogs.customAction(context) { _, p ->
-                        if (onDone != null) onDone() else AliasGui.open(context, p)
-                    },
-                )
+        if (PlatformCompat.supportsDialogs) {
+            PaperAliasDialogs.openCustomAliasDialog(host, admin, existing, onBack, onDone)
+        } else {
+            val short = host.rootAliases.firstOrNull() ?: host.rootCommandName
+            host.locale.sendDirectRaw(
+                admin,
+                "<gray>Custom alias CLI:</gray> <white>/$short aliases create <name> <command...></white>",
             )
+            AliasGui.open(host, admin, onBack = onBack)
         }
-
-        OpusDialogs.showMultiAction(
-            context = context,
-            player = admin,
-            title = locale.component(
-                if (existing != null) "dialog.alias-edit-title" else "dialog.alias-create-title"
-            ),
-            body = listOf(OpusDialogs.plainBody(locale.raw("dialog.alias-custom-help"))),
-            inputs = inputs,
-            actions = actions,
-            columns = 2,
-        )
     }
 
     fun openRegularAliasDialog(
-        context: OpusContext,
+        host: CoreHost,
         admin: Player,
         entry: CommandAliasEntry,
+        onBack: ((Player) -> Unit)? = null,
         onDone: (() -> Unit)? = null,
     ) {
-        if (!admin.hasPermission("opus.admin")) {
-            context.locale.send(admin, "general.no-permission")
+        if (!admin.hasPermission(host.adminPermission)) {
+            host.locale.send(admin, "general.no-permission")
             return
         }
-        val locale = context.locale
-        val inputs = buildList {
-            add(
-                OpusDialogs.textInput(
-                    key = "command",
-                    labelRaw = locale.raw("dialog.alias-input-commands"),
-                    initial = entry.commands.firstOrNull().orEmpty(),
-                    maxLength = 160,
-                )
-            )
-            add(OpusDialogs.boolInput("enabled", locale.raw("dialog.alias-input-enabled"), entry.enabled))
-            add(OpusDialogs.boolInput("tab", locale.raw("dialog.alias-input-tab"), entry.tabComplete))
-            if (entry.type == CommandAliasType.BASE) {
-                add(
-                    OpusDialogs.boolInput(
-                        "base_disabled",
-                        locale.raw("dialog.alias-input-base-disabled"),
-                        entry.baseDisabled,
-                    )
-                )
-            }
+        if (PlatformCompat.supportsDialogs) {
+            PaperAliasDialogs.openRegularAliasDialog(host, admin, entry, onBack, onDone)
+        } else {
+            AliasGui.open(host, admin, onBack = onBack)
         }
-
-        val saveBtn = OpusDialogs.actionButton(
-            locale.raw("dialog.save"),
-            width = 140,
-            action = OpusDialogs.customAction(context) { response, p ->
-                val cmd = response.getText("command")?.trim()
-                val updated = context.commandAliases.updateRegularAlias(
-                    aliasKey = entry.alias,
-                    enabled = response.getBoolean("enabled"),
-                    tabComplete = response.getBoolean("tab"),
-                    baseDisabled = if (entry.type == CommandAliasType.BASE) response.getBoolean("base_disabled") else null,
-                    commandTemplate = cmd,
-                )
-                if (updated != null) {
-                    AliasGui.emitFeedback(context, p, "gui.alias-updated", "alias" to updated.alias)
-                }
-                onDone?.invoke()
-            },
-        )
-        val backBtn = OpusDialogs.actionButton(
-            locale.raw("gui.back"),
-            width = 140,
-            action = OpusDialogs.customAction(context) { _, p ->
-                if (onDone != null) onDone() else AliasGui.open(context, p)
-            },
-        )
-
-        OpusDialogs.showMultiAction(
-            context = context,
-            player = admin,
-            title = locale.component("dialog.alias-regular-title", mapOf("alias" to entry.alias)),
-            inputs = inputs,
-            actions = listOf(saveBtn, backBtn),
-            columns = 2,
-        )
     }
 }

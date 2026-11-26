@@ -2,15 +2,20 @@ package opus.modules.skills
 
 import opus.core.OpusContext
 import opus.core.command.CommandHelper
-import opus.core.database.LeaderboardEntry
-import opus.core.gui.MenuItems
-import opus.core.gui.MenuWindow
-import opus.core.player.OpusPlayerState
 import opus.core.text.TextFormatter
+import opus.core.ui.MenuItems
+import opus.core.ui.MenuWindow
 import opus.modules.hud.HudDialogs
 import opus.modules.party.PartyService
+import opus.rpg
+import opus.skills.LeaderboardEntry
+import opus.skills.OpusPlayerState
 import opus.skills.SkillType
 import opus.skills.SuperAbilityType
+import opus.skills.abilityName
+import opus.skills.categoryName
+import opus.skills.skillName
+import opus.skills.subSkillName
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.entity.Player
@@ -37,7 +42,7 @@ object SkillGui {
         menu.fillBorder(borderGlass)
 
         val power = state.powerLevel()
-        val mastered = context.ranks.masteredCount(state)
+        val mastered = context.rpg.ranks.masteredCount(state)
         menu.set(
             4,
             MenuItems.item(
@@ -64,7 +69,8 @@ object SkillGui {
             val slot = slots.getOrNull(idx) ?: return@forEachIndexed
             val level = state.getLevel(skill)
             val xp = state.getXp(skill)
-            val needed = if (skill.isChild) 0 else context.formula.xpToNextLevel(level, context.config.retroMode, power)
+            val needed =
+                if (skill.isChild) 0 else context.rpg.formula.xpToNextLevel(level, context.config.retroMode, power)
             val lore = mutableListOf(
                 "<gray>${context.locale.categoryName(skill.category)}</gray>",
                 context.locale.raw("gui.level-line", "level" to level),
@@ -102,7 +108,7 @@ object SkillGui {
                 ),
             ) { click ->
                 HudDialogs.openSettingsDialog(context, click.player) { p ->
-                    openHub(context, p, context.players.getCached(p))
+                    openHub(context, p, context.rpg.players.getCached(p))
                 }
             }
 
@@ -191,7 +197,11 @@ object SkillGui {
         val level = state.getLevel(skill)
         val xp = state.getXp(skill)
         val needed =
-            if (skill.isChild) 0 else context.formula.xpToNextLevel(level, context.config.retroMode, state.powerLevel())
+            if (skill.isChild) 0 else context.rpg.formula.xpToNextLevel(
+                level,
+                context.config.retroMode,
+                state.powerLevel()
+            )
 
         val headerLore = mutableListOf(context.locale.raw("gui.detail-level", "level" to level))
         if (!skill.isChild) {
@@ -216,9 +226,9 @@ object SkillGui {
         val subSlots = listOf(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25)
         skill.subSkills().forEachIndexed { idx, sub ->
             val slot = subSlots.getOrNull(idx) ?: return@forEachIndexed
-            val rank = context.ranks.getRank(state, sub)
+            val rank = context.rpg.ranks.getRank(state, sub)
             val unlocked = rank > 0
-            val nextReq = context.ranks.nextUnlockLevel(state, sub)
+            val nextReq = context.rpg.ranks.nextUnlockLevel(state, sub)
             val mat = if (unlocked) Material.EMERALD else Material.COAL
             val lore = mutableListOf(
                 context.locale.raw("gui.subskill-rank", "rank" to rank, "max" to sub.maxRanks),
@@ -324,7 +334,7 @@ object SkillGui {
         CommandHelper.dispatchAsync(
             context,
             viewer,
-            asyncWork = { context.playerRepository.readTopSkill(skill, 10, offset) },
+            asyncWork = { context.rpg.playerRepository.readTopSkill(skill, 10, offset) },
             onResult = { entries ->
                 if (viewer.isOnline) {
                     openLeaderboard(context, viewer, skill, entries, safePage)
@@ -380,8 +390,8 @@ object SkillGui {
                     context,
                     click.player,
                     asyncWork = {
-                        context.players.findByName(entry.username)
-                            ?: Bukkit.getPlayerExact(entry.username)?.let { context.players.getCached(it) }
+                        context.rpg.players.findByName(entry.username)
+                            ?: Bukkit.getPlayerExact(entry.username)?.let { context.rpg.players.getCached(it) }
                     },
                     onResult = { targetState ->
                         if (targetState != null && click.player.isOnline) {
@@ -413,7 +423,7 @@ object SkillGui {
             openLeaderboardFilter(context, click.player)
         }
         menu.set(49, MenuItems.item(Material.NETHER_STAR, context.locale.raw("gui.back"))) { click ->
-            openHub(context, click.player, context.players.getCached(click.player))
+            openHub(context, click.player, context.rpg.players.getCached(click.player))
         }
         menu.set(50, MenuItems.item(Material.BARRIER, context.locale.raw("gui.close"))) {
             it.player.closeInventory()

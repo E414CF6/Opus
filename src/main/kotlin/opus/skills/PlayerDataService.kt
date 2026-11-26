@@ -1,21 +1,16 @@
-package opus.core.player
+package opus.skills
 
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import opus.core.config.OpusConfig
-import opus.core.database.PlayerRecord
-import opus.core.database.PlayerSkillRepository
-import opus.core.database.SkillProgressRecord
-import opus.core.scheduler.OpusScheduler
-import opus.skills.SkillType
-import opus.skills.SuperAbilityType
+import opus.core.scheduler.PluginScheduler
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerQuitEvent
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 enum class XpHudMode {
@@ -160,7 +155,10 @@ class OpusPlayerState(
     }
 
     fun trackDiminishedWindow(
-        skill: SkillType, windowMillis: Long, gained: Double, now: Long = System.currentTimeMillis()
+        skill: SkillType,
+        windowMillis: Long,
+        gained: Double,
+        now: Long = System.currentTimeMillis(),
     ): Double {
         val start = xpWindowStart[skill] ?: 0L
         if (now - start > windowMillis) {
@@ -228,7 +226,7 @@ class OpusPlayerState(
  */
 class PlayerDataService(
     private val repository: PlayerSkillRepository,
-    private val scheduler: OpusScheduler,
+    private val scheduler: PluginScheduler,
     private val config: OpusConfig,
 ) : Listener {
 

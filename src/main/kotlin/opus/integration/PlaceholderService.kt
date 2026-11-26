@@ -3,8 +3,9 @@ package opus.integration
 import kotlinx.coroutines.launch
 import me.clip.placeholderapi.PlaceholderAPI
 import opus.core.OpusContext
-import opus.core.database.LeaderboardEntry
 import opus.modules.party.PartyService
+import opus.rpg
+import opus.skills.LeaderboardEntry
 import opus.skills.SkillType
 import org.bukkit.Bukkit
 import org.bukkit.OfflinePlayer
@@ -26,9 +27,9 @@ class PlaceholderService(private val context: OpusContext) {
             context.scheduler.asyncScope.launch {
                 val maxRank = context.config.papiMaxTrackedRank
                 runCatching {
-                    topCache["POWER"] = context.playerRepository.readTopSkill(null, maxRank)
+                    topCache["POWER"] = context.rpg.playerRepository.readTopSkill(null, maxRank)
                     for (skill in SkillType.nonChildSkills) {
-                        topCache[skill.name] = context.playerRepository.readTopSkill(skill, maxRank)
+                        topCache[skill.name] = context.rpg.playerRepository.readTopSkill(skill, maxRank)
                     }
                 }
             }
@@ -37,7 +38,7 @@ class PlaceholderService(private val context: OpusContext) {
 
     fun resolveKey(player: OfflinePlayer?, params: String): String? {
         val key = params.lowercase()
-        val state = player?.uniqueId?.let { context.players.getCached(it) }
+        val state = player?.uniqueId?.let { context.rpg.players.getCached(it) }
         val partyService = context.getService<PartyService>()
 
         if (key == "power_level") {
@@ -57,7 +58,7 @@ class PlaceholderService(private val context: OpusContext) {
         if (key.startsWith("xp_needed_")) {
             val skill = SkillType.match(key.removePrefix("xp_needed_")) ?: return null
             val lvl = state?.getLevel(skill) ?: 0
-            return context.formula.xpToNextLevel(lvl, context.config.retroMode, state?.powerLevel() ?: 0).toString()
+            return context.rpg.formula.xpToNextLevel(lvl, context.config.retroMode, state?.powerLevel() ?: 0).toString()
         }
         if (key.startsWith("xp_")) {
             val skill = SkillType.match(key.removePrefix("xp_")) ?: return null
@@ -88,7 +89,7 @@ class PlaceholderService(private val context: OpusContext) {
     }
 
     fun applyPlaceholders(player: Player?, template: String): String {
-        val state = player?.uniqueId?.let { context.players.getCached(it) }
+        val state = player?.uniqueId?.let { context.rpg.players.getCached(it) }
         val partyName = player?.uniqueId?.let { context.getService<PartyService>()?.getPlayerParty(it)?.name } ?: ""
         var resolved = template
             .replace("{online}", Bukkit.getOnlinePlayers().size.toString())

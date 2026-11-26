@@ -1,7 +1,5 @@
 package opus.modules.party
 
-import com.mojang.brigadier.Command
-import io.papermc.paper.command.brigadier.Commands
 import io.papermc.paper.event.player.AsyncChatEvent
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -9,16 +7,17 @@ import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import opus.core.OpusContext
 import opus.core.command.CommandHelper
+import opus.core.command.CommandRegistry
+import opus.core.command.SubcommandTabCompleter
 import opus.core.config.YamlConfigFile
-import opus.core.database.PartyMemberRecord
-import opus.core.database.PartyRecord
-import opus.core.gui.MenuItems
-import opus.core.gui.MenuWindow
-import opus.core.module.OpusModule
-import opus.core.player.ChatChannelMode
+import opus.core.module.FeatureModule
 import opus.core.scheduler.WarmupRunner
 import opus.core.text.TextFormatter
+import opus.core.ui.MenuItems
+import opus.core.ui.MenuWindow
 import opus.modules.combat.PartyRelationHook
+import opus.rpg
+import opus.skills.ChatChannelMode
 import opus.skills.PartyXpShareHook
 import opus.skills.SkillType
 import org.bukkit.Bukkit
@@ -194,7 +193,7 @@ class PartyService(
 
     fun loadBlocking() {
         runBlocking {
-            val (parties, members) = context.partyRepository.loadAll()
+            val (parties, members) = context.rpg.partyRepository.loadAll()
             partiesById.clear()
             partyByName.clear()
             partyByPlayer.clear()
@@ -227,7 +226,7 @@ class PartyService(
     fun saveAllBlocking() {
         runBlocking {
             for (party in partiesById.values) {
-                context.partyRepository.upsertParty(party.toRecord())
+                context.rpg.partyRepository.upsertParty(party.toRecord())
             }
         }
     }
@@ -259,8 +258,8 @@ class PartyService(
         partyByPlayer[leader.uniqueId] = id
 
         context.scheduler.asyncScope.launch {
-            context.partyRepository.upsertParty(party.toRecord())
-            context.partyRepository.upsertMember(member)
+            context.rpg.partyRepository.upsertParty(party.toRecord())
+            context.rpg.partyRepository.upsertMember(member)
         }
         return true
     }
@@ -277,7 +276,7 @@ class PartyService(
             }
         }
         context.scheduler.asyncScope.launch {
-            context.partyRepository.upsertMember(member)
+            context.rpg.partyRepository.upsertMember(member)
         }
     }
 
@@ -296,15 +295,15 @@ class PartyService(
             party.members[nextLeader]?.let { existing ->
                 val promoted = existing.copy(role = "LEADER")
                 party.members[nextLeader] = promoted
-                context.scheduler.asyncScope.launch { context.partyRepository.upsertMember(promoted) }
+                context.scheduler.asyncScope.launch { context.rpg.partyRepository.upsertMember(promoted) }
             }
-            context.scheduler.asyncScope.launch { context.partyRepository.upsertParty(party.toRecord()) }
+            context.scheduler.asyncScope.launch { context.rpg.partyRepository.upsertParty(party.toRecord()) }
         }
         for (online in party.onlinePlayers()) {
             context.locale.send(online, "party.member-left", "player" to player.name)
         }
         context.scheduler.asyncScope.launch {
-            context.partyRepository.deleteMember(player.uniqueId)
+            context.rpg.partyRepository.deleteMember(player.uniqueId)
         }
     }
 
@@ -312,7 +311,7 @@ class PartyService(
         party.allyPartyId?.let { allyId ->
             partiesById[allyId]?.let { ally ->
                 ally.allyPartyId = null
-                context.scheduler.asyncScope.launch { context.partyRepository.upsertParty(ally.toRecord()) }
+                context.scheduler.asyncScope.launch { context.rpg.partyRepository.upsertParty(ally.toRecord()) }
             }
         }
         pendingAllyInvites.remove(party.id)
@@ -325,7 +324,7 @@ class PartyService(
         partiesById.remove(party.id)
         partyByName.remove(party.name.lowercase())
         context.scheduler.asyncScope.launch {
-            context.partyRepository.deleteParty(party.id)
+            context.rpg.partyRepository.deleteParty(party.id)
         }
     }
 
@@ -418,7 +417,7 @@ class PartyService(
             context.locale.send(target, "party.kicked", "party" to party.name)
         }
         context.scheduler.asyncScope.launch {
-            context.partyRepository.deleteMember(targetUuid)
+            context.rpg.partyRepository.deleteMember(targetUuid)
         }
     }
 
@@ -436,7 +435,7 @@ class PartyService(
 
     fun saveParty(party: Party) {
         context.scheduler.asyncScope.launch {
-            context.partyRepository.upsertParty(party.toRecord())
+            context.rpg.partyRepository.upsertParty(party.toRecord())
         }
     }
 
@@ -523,7 +522,7 @@ class PartyService(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onChat(event: AsyncChatEvent) {
         val player = event.player
-        val state = context.players.getCached(player)
+        val state = context.rpg.players.getCached(player)
         when (state.chatMode) {
             ChatChannelMode.PARTY -> {
                 val party = getPlayerParty(player.uniqueId)
@@ -563,7 +562,7 @@ class PartyService(
             member.sendMessage(comp)
         }
         for (online in Bukkit.getOnlinePlayers()) {
-            if (online !in party.onlinePlayers() && context.players.getCached(online).chatSpy) {
+            if (online !in party.onlinePlayers() && context.rpg.players.getCached(online).chatSpy) {
                 online.sendMessage(
                     context.locale.component("party.chat-spy-prefix", mapOf("party" to party.name)).append(comp)
                 )
@@ -688,7 +687,7 @@ class PartyService(
             return
         }
         WarmupRunner.start(
-            context = context,
+            host = context,
             player = player,
             channel = "ptp_warmup",
             warmupSeconds = warmup,
@@ -857,7 +856,7 @@ class PartyService(
             }
         }
 
-        val chatState = context.players.getCached(player)
+        val chatState = context.rpg.players.getCached(player)
         val inPartyChat = chatState.chatMode == ChatChannelMode.PARTY
         menu.set(
             39,
@@ -910,7 +909,7 @@ class PartyService(
     }
 }
 
-class PartyModule(private val context: OpusContext) : OpusModule {
+class PartyModule(private val context: OpusContext) : FeatureModule {
     override val id = "party"
     override val description = "Parties, alliances, XP/item sharing, party chat, and party teleportation"
 
@@ -934,222 +933,152 @@ class PartyModule(private val context: OpusContext) : OpusModule {
 
     override fun listeners(): List<Listener> = listOf(service)
 
-    override fun registerCommands(registrar: Commands) {
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(
-                    name,
-                    "opus.party.user",
-                    executor = { ctx, args ->
-                        val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                            ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        if (!partyConfig.enabled) {
-                            context.locale.send(player, "party.disabled")
-                            return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        }
-                        handlePartyCommand(player, args)
-                        Command.SINGLE_SUCCESS
-                    },
-                    tabSuggester = { _, parts ->
-                        if (parts.size <= 1) {
-                            listOf(
-                                "create",
-                                "join",
-                                "invite",
-                                "accept",
-                                "kick",
-                                "leave",
-                                "leader",
-                                "rename",
-                                "disband",
-                                "lock",
-                                "unlock",
-                                "password",
-                                "motd",
-                                "xpshare",
-                                "itemshare",
-                                "ally",
-                                "disbandally",
-                                "info",
-                                "gui"
-                            )
-                                .filter { it.startsWith(parts.lastOrNull() ?: "", ignoreCase = true) }
-                        } else if (parts.size == 2 && parts[0].equals("ally", ignoreCase = true)) {
-                            listOf("invite", "accept", "disband")
-                                .filter { it.startsWith(parts[1], ignoreCase = true) }
-                        } else emptyList()
-                    },
-                )
+    override fun registerSubcommands(registry: CommandRegistry) {
+        registry.registerSubcommand(
+            name = "party",
+            description = "Create and manage RPG parties",
+            permission = "opus.party.user",
+            tabCompleter = SubcommandTabCompleter { _, parts ->
+                if (parts.size <= 1) {
+                    listOf(
+                        "create", "join", "invite", "accept", "kick", "leave",
+                        "leader", "rename", "disband", "lock", "unlock", "password",
+                        "motd", "xpshare", "itemshare", "ally", "disbandally", "info", "gui",
+                    ).filter { it.startsWith(parts.lastOrNull() ?: "", ignoreCase = true) }
+                } else if (parts.size == 2 && parts[0].equals("ally", ignoreCase = true)) {
+                    listOf("invite", "accept", "disband").filter { it.startsWith(parts[1], ignoreCase = true) }
+                } else {
+                    emptyList()
+                }
             },
-            "party",
-            "Create and manage RPG parties",
-        )
+        ) { sender, args ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            if (!partyConfig.enabled) {
+                context.locale.send(player, "party.disabled")
+                return@registerSubcommand true
+            }
+            handlePartyCommand(player, args)
+            true
+        }
 
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(name, "opus.chat.partychat", executor = { ctx, args ->
-                    val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                        ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    val party = service.getPlayerParty(player.uniqueId)
-                    if (party == null) {
-                        context.locale.send(player, "party.not-in-party")
-                        return@simpleArgsCommand Command.SINGLE_SUCCESS
+        registry.registerSubcommand(
+            name = "partychat",
+            description = "Toggle or send party chat",
+            permission = "opus.chat.partychat",
+            aliases = listOf("pc", "p"),
+        ) { sender, args ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            val party = service.getPlayerParty(player.uniqueId)
+            if (party == null) {
+                context.locale.send(player, "party.not-in-party")
+                return@registerSubcommand true
+            }
+            if (!service.requireUnlocked(player, party, PartyFeature.CHAT)) {
+                return@registerSubcommand true
+            }
+            if (args.isNotEmpty()) {
+                service.sendPartyChat(player, party, args.joinToString(" "))
+                return@registerSubcommand true
+            }
+            val state = context.rpg.players.getCached(player)
+            state.chatMode =
+                if (state.chatMode == ChatChannelMode.PARTY) ChatChannelMode.PUBLIC else ChatChannelMode.PARTY
+            state.markDirty()
+            val flag = if (state.chatMode == ChatChannelMode.PARTY) "ON" else "OFF"
+            context.locale.send(player, "party.chat-toggled", "state" to flag)
+            context.locale.sendActionBar(player, "party.chat-toggled", "state" to flag)
+            true
+        }
+
+        registry.registerSubcommand(
+            name = "adminchat",
+            description = "Toggle or send admin chat",
+            permission = "opus.chat.adminchat",
+            aliases = listOf("opusac", "ac", "a"),
+            disabledStandaloneAliases = listOf("ac", "a"),
+        ) { sender, args ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            if (args.isNotEmpty()) {
+                service.sendAdminChat(player, args.joinToString(" "))
+                return@registerSubcommand true
+            }
+            val state = context.rpg.players.getCached(player)
+            state.chatMode =
+                if (state.chatMode == ChatChannelMode.ADMIN) ChatChannelMode.PUBLIC else ChatChannelMode.ADMIN
+            state.markDirty()
+            val flag = if (state.chatMode == ChatChannelMode.ADMIN) "ON" else "OFF"
+            context.locale.send(player, "party.admin-chat-toggled", "state" to flag)
+            true
+        }
+
+        registry.registerSubcommand(
+            name = "mcchatspy",
+            description = "Toggle party chat spy",
+            permission = "opus.chat.spy",
+        ) { sender, _ ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            val state = context.rpg.players.getCached(player)
+            state.chatSpy = !state.chatSpy
+            context.locale.send(player, "party.chat-spy-toggled", "state" to if (state.chatSpy) "ON" else "OFF")
+            true
+        }
+
+        registry.registerSubcommand(
+            name = "ptp",
+            description = "Teleport to a party member",
+            permission = "opus.party.user",
+            tabCompleter = SubcommandTabCompleter { sender, parts ->
+                if (parts.size <= 1) {
+                    val prefix = parts.lastOrNull() ?: ""
+                    val specials = listOf("accept", "toggle", "acceptany")
+                        .filter { it.startsWith(prefix, ignoreCase = true) }
+                    specials + CommandHelper.suggestOnlinePlayers(sender, prefix)
+                } else {
+                    emptyList()
+                }
+            },
+        ) { sender, args ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            val arg = args.firstOrNull()
+            if (arg == null) {
+                val party = service.getPlayerParty(player.uniqueId)
+                if (party == null) {
+                    context.locale.send(player, "party.not-in-party")
+                } else {
+                    service.openPtpPickerGui(player, party)
+                }
+                return@registerSubcommand true
+            }
+            when (arg.lowercase()) {
+                "accept" -> service.acceptPtpRequest(player)
+                "toggle" -> {
+                    val enabled = service.togglePtp(player)
+                    val flag = if (enabled) "ON" else "OFF"
+                    context.locale.send(player, "party.ptp-toggle-changed", "state" to flag)
+                    context.locale.sendActionBar(player, "party.ptp-toggle-changed", "state" to flag)
+                }
+
+                "acceptany" -> {
+                    val on = service.togglePtpAcceptAny(player)
+                    val flag = if (on) "ON" else "OFF"
+                    context.locale.send(player, "party.ptp-acceptany-changed", "state" to flag)
+                    context.locale.sendActionBar(player, "party.ptp-acceptany-changed", "state" to flag)
+                }
+
+                else -> {
+                    val target = Bukkit.getPlayerExact(arg)
+                    if (target == null) {
+                        context.locale.send(player, "general.player-not-found", "player" to arg)
+                        return@registerSubcommand true
                     }
-                    if (!service.requireUnlocked(player, party, PartyFeature.CHAT)) {
-                        return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    }
-                    if (args.isNotEmpty()) {
-                        service.sendPartyChat(player, party, args.joinToString(" "))
-                        return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    }
-                    val state = context.players.getCached(player)
-                    state.chatMode =
-                        if (state.chatMode == ChatChannelMode.PARTY) ChatChannelMode.PUBLIC else ChatChannelMode.PARTY
-                    state.markDirty()
-                    context.locale.send(
-                        player,
-                        "party.chat-toggled",
-                        "state" to if (state.chatMode == ChatChannelMode.PARTY) "ON" else "OFF"
-                    )
-                    context.locale.sendActionBar(
-                        player,
-                        "party.chat-toggled",
-                        "state" to if (state.chatMode == ChatChannelMode.PARTY) "ON" else "OFF"
-                    )
-                    Command.SINGLE_SUCCESS
-                })
-            },
-            "partychat",
-            "Toggle or send party chat",
-            listOf("pc", "p"),
-        )
-
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(name, "opus.chat.adminchat", executor = { ctx, args ->
-                    val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                        ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    if (args.isNotEmpty()) {
-                        service.sendAdminChat(player, args.joinToString(" "))
-                        return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    }
-                    val state = context.players.getCached(player)
-                    state.chatMode =
-                        if (state.chatMode == ChatChannelMode.ADMIN) ChatChannelMode.PUBLIC else ChatChannelMode.ADMIN
-                    state.markDirty()
-                    context.locale.send(
-                        player,
-                        "party.admin-chat-toggled",
-                        "state" to if (state.chatMode == ChatChannelMode.ADMIN) "ON" else "OFF"
-                    )
-                    Command.SINGLE_SUCCESS
-                })
-            },
-            "adminchat",
-            "Toggle or send admin chat",
-            listOf("ac", "a"),
-        )
-
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(name, "opus.chat.spy", executor = { ctx, _ ->
-                    val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                        ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    val state = context.players.getCached(player)
-                    state.chatSpy = !state.chatSpy
-                    context.locale.send(player, "party.chat-spy-toggled", "state" to if (state.chatSpy) "ON" else "OFF")
-                    Command.SINGLE_SUCCESS
-                })
-            },
-            "mcchatspy",
-            "Toggle party chat spy",
-        )
-
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(
-                    name,
-                    "opus.party.user",
-                    executor = { ctx, args ->
-                        val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                            ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        val arg = args.firstOrNull()
-                        if (arg == null) {
-                            val party = service.getPlayerParty(player.uniqueId)
-                            if (party == null) {
-                                context.locale.send(player, "party.not-in-party")
-                            } else {
-                                service.openPtpPickerGui(player, party)
-                            }
-                            return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        }
-                        when (arg.lowercase()) {
-                            "accept" -> service.acceptPtpRequest(player)
-                            "toggle" -> {
-                                val enabled = service.togglePtp(player)
-                                context.locale.send(
-                                    player,
-                                    "party.ptp-toggle-changed",
-                                    "state" to if (enabled) "ON" else "OFF",
-                                )
-                                context.locale.sendActionBar(
-                                    player,
-                                    "party.ptp-toggle-changed",
-                                    "state" to if (enabled) "ON" else "OFF",
-                                )
-                            }
-
-                            "acceptany" -> {
-                                val on = service.togglePtpAcceptAny(player)
-                                context.locale.send(
-                                    player,
-                                    "party.ptp-acceptany-changed",
-                                    "state" to if (on) "ON" else "OFF",
-                                )
-                                context.locale.sendActionBar(
-                                    player,
-                                    "party.ptp-acceptany-changed",
-                                    "state" to if (on) "ON" else "OFF",
-                                )
-                            }
-
-                            else -> {
-                                val target = Bukkit.getPlayerExact(arg)
-                                if (target == null) {
-                                    context.locale.send(player, "general.player-not-found", "player" to arg)
-                                    return@simpleArgsCommand Command.SINGLE_SUCCESS
-                                }
-                                service.tryPartyTeleport(player, target)
-                            }
-                        }
-                        Command.SINGLE_SUCCESS
-                    },
-                    tabSuggester = { sender, parts ->
-                        if (parts.size <= 1) {
-                            val prefix = parts.lastOrNull() ?: ""
-                            val specials = listOf("accept", "toggle", "acceptany")
-                                .filter { it.startsWith(prefix, ignoreCase = true) }
-                            specials + CommandHelper.suggestOnlinePlayers(sender, prefix)
-                        } else emptyList()
-                    },
-                )
-            },
-            "ptp",
-            "Teleport to a party member",
-        )
+                    service.tryPartyTeleport(player, target)
+                }
+            }
+            true
+        }
     }
 
-    private fun handlePartyCommand(player: Player, args: Array<String>) {
+    private fun handlePartyCommand(player: Player, args: Array<out String>) {
         val current = service.getPlayerParty(player.uniqueId)
         if (args.isEmpty()) {
             service.openPartyPortal(player)

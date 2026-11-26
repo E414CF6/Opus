@@ -1,6 +1,6 @@
 package opus
 
-import opus.core.player.OpusPlayerState
+import opus.skills.OpusPlayerState
 import opus.modules.combat.CombatLimitBreak
 import opus.modules.party.Party
 import opus.modules.skills.HardcoreService

@@ -1,6 +1,6 @@
-package opus.core.config
+package opus.skills
 
-import opus.skills.SkillType
+import opus.core.config.YamlConfigFile
 import org.bukkit.Material
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.EntityType

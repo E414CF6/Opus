@@ -1,7 +1,13 @@
 package opus
 
 import kotlinx.coroutines.runBlocking
-import opus.core.database.*
+import opus.core.storage.DatabaseManager
+import opus.modules.party.PartyMemberRecord
+import opus.modules.party.PartyRecord
+import opus.modules.party.PartyRepository
+import opus.skills.PlayerRecord
+import opus.skills.PlayerSkillRepository
+import opus.skills.SkillProgressRecord
 import opus.skills.SkillType
 import opus.skills.SuperAbilityType
 import org.junit.jupiter.api.Assertions.*
@@ -19,7 +25,7 @@ class DatabaseRepositoryTest {
     fun `PlayerSkillRepository saves loads ranks and purges players`() = runBlocking {
         val db = DatabaseManager.forSqlite(tempDir.resolve("opus_players.db").toFile())
         db.use {
-            val repo = PlayerSkillRepository(db)
+            val repo = PlayerSkillRepository(db).apply { initSchema() }
             val aliceId = UUID.randomUUID()
             val bobId = UUID.randomUUID()
             val futureCd = System.currentTimeMillis() + 60_000L
@@ -85,7 +91,7 @@ class DatabaseRepositoryTest {
     fun `PartyRepository persists parties alliances and members`() = runBlocking {
         val db = DatabaseManager.forSqlite(tempDir.resolve("opus_parties.db").toFile())
         db.use {
-            val repo = PartyRepository(db)
+            val repo = PartyRepository(db).apply { initSchema() }
             val partyId = UUID.randomUUID()
             val leaderId = UUID.randomUUID()
             val memberId = UUID.randomUUID()

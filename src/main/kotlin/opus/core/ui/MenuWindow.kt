@@ -1,7 +1,9 @@
-package opus.core.gui
+package opus.core.ui
 
 import net.kyori.adventure.text.Component
-import opus.core.OpusContext
+import opus.core.CoreHost
+import opus.core.compat.PlatformCompat
+import opus.core.locale.LocaleService
 import opus.core.text.TextFormatter
 import org.bukkit.Bukkit
 import org.bukkit.Material
@@ -99,7 +101,7 @@ class MenuWindow(
     }
 
     fun setFooterNav(
-        context: OpusContext,
+        locale: LocaleService,
         page: Int,
         totalPages: Int,
         prevSlot: Int = (rows - 1) * 9 + 3,
@@ -108,19 +110,38 @@ class MenuWindow(
         onNext: () -> Unit,
     ) {
         if (page > 1) {
-            set(prevSlot, MenuItems.item(Material.ARROW, context.locale.raw("gui.prev-page"))) {
+            set(prevSlot, MenuItems.item(Material.ARROW, locale.raw("gui.prev-page"))) {
                 onPrev()
             }
         }
         if (page < totalPages) {
-            set(nextSlot, MenuItems.item(Material.ARROW, context.locale.raw("gui.next-page"))) {
+            set(nextSlot, MenuItems.item(Material.ARROW, locale.raw("gui.next-page"))) {
                 onNext()
             }
         }
     }
 
+    fun setFooterNav(
+        host: CoreHost,
+        page: Int,
+        totalPages: Int,
+        prevSlot: Int = (rows - 1) * 9 + 3,
+        nextSlot: Int = (rows - 1) * 9 + 5,
+        onPrev: () -> Unit,
+        onNext: () -> Unit,
+    ) = setFooterNav(host.locale, page, totalPages, prevSlot, nextSlot, onPrev, onNext)
+
     fun open(player: Player) {
         player.openInventory(backing)
+    }
+
+    private fun runEntityCallback(player: Player, action: (Player) -> Unit) {
+        val plugin = runCatching { JavaPlugin.getProvidingPlugin(MenuWindow::class.java) }.getOrNull() ?: return
+        if (PlatformCompat.supportsFoliaSchedulers) {
+            player.scheduler.run(plugin, { action(player) }, null)
+        } else {
+            Bukkit.getScheduler().runTask(plugin, Runnable { action(player) })
+        }
     }
 
     internal fun handleClick(event: InventoryClickEvent) {
@@ -133,24 +154,12 @@ class MenuWindow(
                 if (!allowBottomInventoryClick) {
                     event.isCancelled = true
                 } else if (event.isShiftClick) {
-                    onEditableChanged?.let { cb ->
-                        player.scheduler.run(
-                            JavaPlugin.getProvidingPlugin(MenuWindow::class.java),
-                            { cb(player) },
-                            null,
-                        )
-                    }
+                    onEditableChanged?.let { cb -> runEntityCallback(player, cb) }
                 }
                 return
             }
             if (raw in editableSlots) {
-                onEditableChanged?.let { cb ->
-                    player.scheduler.run(
-                        JavaPlugin.getProvidingPlugin(MenuWindow::class.java),
-                        { cb(player) },
-                        null,
-                    )
-                }
+                onEditableChanged?.let { cb -> runEntityCallback(player, cb) }
                 return
             }
             event.isCancelled = true
@@ -175,17 +184,15 @@ class MenuWindow(
             return
         }
         val player = event.whoClicked as? Player ?: return
-        onEditableChanged?.let { cb ->
-            player.scheduler.run(
-                JavaPlugin.getProvidingPlugin(MenuWindow::class.java),
-                { cb(player) },
-                null,
-            )
-        }
+        onEditableChanged?.let { cb -> runEntityCallback(player, cb) }
     }
 
     internal fun handleClose(event: InventoryCloseEvent) {
         onClose?.invoke(event)
+    }
+
+    companion object {
+        val CONTENT_SLOTS: List<Int> = (10..16) + (19..25) + (28..34) + (37..43)
     }
 }
 
@@ -259,13 +266,13 @@ object MenuItems {
         material: Material,
         label: String,
         enabled: Boolean,
-        context: OpusContext,
+        locale: LocaleService,
         extraLore: List<String> = emptyList(),
     ): ItemStack {
-        val stateText = context.locale.raw(if (enabled) "general.state-on" else "general.state-off")
+        val stateText = locale.raw(if (enabled) "general.state-on" else "general.state-off")
         val lore = buildList {
             addAll(extraLore)
-            add(context.locale.raw("gui.click-toggle"))
+            add(locale.raw("gui.click-toggle"))
         }
         return item(
             material = material,
@@ -274,9 +281,21 @@ object MenuItems {
         )
     }
 
-    fun backButton(context: OpusContext): ItemStack =
-        item(Material.ARROW, context.locale.raw("gui.back"))
+    fun toggle(
+        material: Material,
+        label: String,
+        enabled: Boolean,
+        host: CoreHost,
+        extraLore: List<String> = emptyList(),
+    ): ItemStack = toggle(material, label, enabled, host.locale, extraLore)
 
-    fun closeButton(context: OpusContext): ItemStack =
-        item(Material.BARRIER, context.locale.raw("gui.close"))
+    fun backButton(locale: LocaleService): ItemStack =
+        item(Material.ARROW, locale.raw("gui.back"))
+
+    fun backButton(host: CoreHost): ItemStack = backButton(host.locale)
+
+    fun closeButton(locale: LocaleService): ItemStack =
+        item(Material.BARRIER, locale.raw("gui.close"))
+
+    fun closeButton(host: CoreHost): ItemStack = closeButton(host.locale)
 }

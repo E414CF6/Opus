@@ -1,8 +1,9 @@
 package opus.core.ui
 
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import net.kyori.adventure.text.Component
-import opus.core.OpusContext
+import opus.core.locale.LocaleService
+import opus.core.scheduler.PluginScheduler
+import opus.core.scheduler.TaskHandle
 import opus.core.text.TextFormatter
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
@@ -24,7 +25,11 @@ enum class ActionBarPriority(val weight: Int) {
 /**
  * Coordinates persistent state HUDs and transient feedback on the ActionBar without flickering or clobbering.
  */
-class ActionBarService(private val context: OpusContext? = null) : Listener {
+class ActionBarService(
+    private val scheduler: PluginScheduler = PluginScheduler(null),
+    private val locale: LocaleService? = null,
+    private val lowPriorityEnabledProvider: () -> Boolean = { true },
+) : Listener {
 
     data class StateEntry(
         val key: String,
@@ -34,12 +39,11 @@ class ActionBarService(private val context: OpusContext? = null) : Listener {
     )
 
     private val playerStates = ConcurrentHashMap<UUID, ConcurrentHashMap<String, StateEntry>>()
-    private var tickTask: ScheduledTask? = null
+    private var tickTask: TaskHandle? = null
 
     fun start() {
-        val ctx = context ?: return
         stop()
-        tickTask = ctx.scheduler.runAsyncTimer(1L, 1L) {
+        tickTask = scheduler.runAsyncTimerMillis(50L, 50L) {
             tickAll()
         }
     }
@@ -85,9 +89,9 @@ class ActionBarService(private val context: OpusContext? = null) : Listener {
         vararg placeholders: Pair<String, Any?>,
         ttlMillis: Long? = null,
     ) {
-        val ctx = context ?: return
+        val loc = locale ?: return
         val map = placeholders.associate { it.first to (it.second?.toString() ?: "") }
-        setState(player, stateKey, priority, ctx.locale.component(localeKey, map), ttlMillis)
+        setState(player, stateKey, priority, loc.component(localeKey, map), ttlMillis)
     }
 
     fun clearState(uuid: UUID, key: String) {
@@ -112,14 +116,11 @@ class ActionBarService(private val context: OpusContext? = null) : Listener {
         vararg placeholders: Pair<String, Any?>,
         durationMillis: Long = 2500L,
     ) {
-        val ctx = context ?: return
+        val loc = locale ?: return
         val map = placeholders.associate { it.first to (it.second?.toString() ?: "") }
-        pushTransient(player, ctx.locale.component(localeKey, map), durationMillis)
+        pushTransient(player, loc.component(localeKey, map), durationMillis)
     }
 
-    /**
-     * Resolves the highest-priority unexpired ActionBar component for [uuid] at [nowMillis].
-     */
     fun resolveActiveEntry(
         uuid: UUID,
         nowMillis: Long = System.currentTimeMillis(),
@@ -148,13 +149,12 @@ class ActionBarService(private val context: OpusContext? = null) : Listener {
     }
 
     private fun dispatchNow(player: Player) {
-        val ctx = context ?: return
         if (!player.isOnline) return
         val entry = resolveActiveEntry(
             player.uniqueId,
-            includeLowPriorityHud = ctx.config.actionBarNotifications,
+            includeLowPriorityHud = lowPriorityEnabledProvider(),
         ) ?: return
-        ctx.scheduler.runForEntity(player) {
+        scheduler.runForEntity(player) {
             if (player.isOnline) {
                 player.sendActionBar(entry.component)
             }
@@ -162,21 +162,17 @@ class ActionBarService(private val context: OpusContext? = null) : Listener {
     }
 
     private fun tickAll() {
-        val ctx = context ?: return
         if (playerStates.isEmpty()) return
         val now = System.currentTimeMillis()
+        val includeLow = lowPriorityEnabledProvider()
         for (uuid in playerStates.keys.toList()) {
             val player = Bukkit.getPlayer(uuid)
             if (player == null || !player.isOnline) {
                 playerStates.remove(uuid)
                 continue
             }
-            val entry = resolveActiveEntry(
-                uuid,
-                now,
-                includeLowPriorityHud = ctx.config.actionBarNotifications,
-            ) ?: continue
-            ctx.scheduler.runForEntity(player) {
+            val entry = resolveActiveEntry(uuid, now, includeLow) ?: continue
+            scheduler.runForEntity(player) {
                 if (player.isOnline) {
                     player.sendActionBar(entry.component)
                 }

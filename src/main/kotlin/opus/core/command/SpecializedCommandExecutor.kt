@@ -2,14 +2,11 @@ package opus.core.command
 
 import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.title.Title
-import opus.core.OpusContext
+import opus.core.CoreHost
+import opus.core.compat.PlatformCompat
 import opus.core.text.TextFormatter
-import opus.integration.PlaceholderService
-import opus.skills.HudFeedbackHook
 import org.bukkit.Bukkit
 import org.bukkit.Location
-import org.bukkit.NamespacedKey
-import org.bukkit.Registry
 import org.bukkit.SoundCategory
 import org.bukkit.entity.Player
 import java.time.Duration
@@ -23,17 +20,17 @@ import java.time.Duration
 object SpecializedCommandExecutor {
 
     fun executeAll(
-        context: OpusContext,
+        host: CoreHost,
         rawLines: List<String>,
         player: Player? = null,
         extraPlaceholders: Map<String, String> = emptyMap(),
     ) {
         if (rawLines.isEmpty()) return
-        executeFromIndex(context, rawLines, 0, player, extraPlaceholders)
+        executeFromIndex(host, rawLines, 0, player, extraPlaceholders)
     }
 
     private fun executeFromIndex(
-        context: OpusContext,
+        host: CoreHost,
         lines: List<String>,
         index: Int,
         player: Player?,
@@ -50,23 +47,23 @@ object SpecializedCommandExecutor {
                 val nextIdx = i
                 if (nextIdx >= lines.size) return
                 if (player != null && player.isOnline) {
-                    context.scheduler.runForEntityDelayed(player, delayTicks) {
-                        executeFromIndex(context, lines, nextIdx, player, extraPlaceholders)
+                    host.scheduler.runForEntityDelayed(player, delayTicks) {
+                        executeFromIndex(host, lines, nextIdx, player, extraPlaceholders)
                     }
                 } else {
-                    context.scheduler.runGlobalDelayed(delayTicks) {
-                        executeFromIndex(context, lines, nextIdx, player, extraPlaceholders)
+                    host.scheduler.runGlobalDelayed(delayTicks) {
+                        executeFromIndex(host, lines, nextIdx, player, extraPlaceholders)
                     }
                 }
                 return
             }
 
-            executeSingleLine(context, raw, player, extraPlaceholders)
+            executeSingleLine(host, raw, player, extraPlaceholders)
         }
     }
 
     internal fun executeSingleLine(
-        context: OpusContext,
+        host: CoreHost,
         rawLine: String,
         player: Player?,
         extraPlaceholders: Map<String, String> = emptyMap(),
@@ -75,18 +72,18 @@ object SpecializedCommandExecutor {
         if (line.startsWith("if:", ignoreCase = true) && line.contains('?')) {
             val splitIdx = line.indexOf('?')
             val condition = line.substring(3, splitIdx).trim()
-            if (!evaluateCondition(context, condition, player)) return
+            if (!evaluateCondition(host, condition, player)) return
             line = line.substring(splitIdx + 1).trim()
         }
 
-        val resolved = resolvePlaceholders(context, line, player, extraPlaceholders)
+        val resolved = resolvePlaceholders(host, line, player, extraPlaceholders)
         val lower = resolved.lowercase()
 
         when {
             lower.startsWith("console:") -> {
                 val cmd = resolved.substring(8).trim().removePrefix("/")
                 if (cmd.isNotEmpty()) {
-                    context.scheduler.runGlobal {
+                    host.scheduler.runGlobal {
                         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
                     }
                 }
@@ -96,7 +93,7 @@ object SpecializedCommandExecutor {
                 val target = player ?: return
                 val cmd = resolved.substring(7).trim().removePrefix("/")
                 if (cmd.isNotEmpty()) {
-                    context.scheduler.runForEntity(target) {
+                    host.scheduler.runForEntity(target) {
                         Bukkit.dispatchCommand(target, cmd)
                     }
                 }
@@ -106,7 +103,7 @@ object SpecializedCommandExecutor {
                 val target = player ?: return
                 val cmd = resolved.substring(3).trim().removePrefix("/")
                 if (cmd.isNotEmpty()) {
-                    context.scheduler.runForEntity(target) {
+                    host.scheduler.runForEntity(target) {
                         val wasOp = target.isOp
                         try {
                             if (!wasOp) target.isOp = true
@@ -136,7 +133,7 @@ object SpecializedCommandExecutor {
             lower.startsWith("actionbar:") -> {
                 val target = player ?: return
                 val payload = resolved.substring(10).trim()
-                context.actionBar.pushTransientRaw(target, payload)
+                host.actionBar.pushTransientRaw(target, payload)
             }
 
             lower.startsWith("bossbar:") -> {
@@ -147,23 +144,14 @@ object SpecializedCommandExecutor {
                 }.getOrDefault(BossBar.Color.YELLOW)
                 val seconds = parts.getOrNull(1)?.trim()?.toIntOrNull()?.coerceIn(1, 300) ?: 5
                 val msg = parts.getOrNull(2)?.trim() ?: parts.last().trim()
-                val hud = context.getService<HudFeedbackHook>()
-                if (hud != null) {
-                    hud.showChannelBossBar(
-                        player = target,
-                        channel = "spec_${target.uniqueId}",
-                        title = TextFormatter.format(msg),
-                        color = color,
-                        progress = 1.0f,
-                        durationTicks = seconds * 20L,
-                    )
-                } else {
-                    val bar = BossBar.bossBar(TextFormatter.format(msg), 1.0f, color, BossBar.Overlay.PROGRESS)
-                    target.showBossBar(bar)
-                    context.scheduler.runForEntityDelayed(target, seconds * 20L) {
-                        if (target.isOnline) target.hideBossBar(bar)
-                    }
-                }
+                host.bossBar.showTemporary(
+                    player = target,
+                    key = "spec_${target.uniqueId}",
+                    title = TextFormatter.format(msg),
+                    progress = 1.0f,
+                    color = color,
+                    durationTicks = seconds * 20L,
+                )
             }
 
             lower.startsWith("title:") -> {
@@ -183,11 +171,7 @@ object SpecializedCommandExecutor {
             lower.startsWith("sound:") -> {
                 val target = player ?: return
                 val parts = resolved.substring(6).split('|')
-                val soundKeyRaw = parts[0].trim().lowercase().replace('.', '_').let { key ->
-                    if (':' in key) key else "minecraft:$key"
-                }
-                val nsKey = NamespacedKey.fromString(soundKeyRaw) ?: return
-                val sound = Registry.SOUNDS.get(nsKey) ?: return
+                val sound = PlatformCompat.resolveSound(parts[0]) ?: return
                 val volume = parts.getOrNull(1)?.toFloatOrNull()?.coerceIn(0f, 10f) ?: 1.0f
                 val pitch = parts.getOrNull(2)?.toFloatOrNull()?.coerceIn(0.5f, 2.0f) ?: 1.0f
                 target.playSound(target.location, sound, SoundCategory.MASTER, volume, pitch)
@@ -203,7 +187,7 @@ object SpecializedCommandExecutor {
             else -> {
                 val cmd = resolved.removePrefix("/")
                 if (cmd.isNotEmpty()) {
-                    context.scheduler.runGlobal {
+                    host.scheduler.runGlobal {
                         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
                     }
                 }
@@ -224,7 +208,7 @@ object SpecializedCommandExecutor {
     }
 
     internal fun evaluateCondition(
-        context: OpusContext?,
+        host: CoreHost?,
         condition: String,
         player: Player?,
         onlineCountProvider: () -> Int = { Bukkit.getOnlinePlayers().size },
@@ -252,19 +236,13 @@ object SpecializedCommandExecutor {
                 onlineCountProvider() < max
             }
 
-            expr.startsWith("power>=", ignoreCase = true) -> {
-                val min = expr.substring(7).trim().toIntOrNull() ?: return false
-                val ctx = context ?: return false
-                player != null && ctx.players.getCached(player).powerLevel() >= min
-            }
-
-            else -> false
+            else -> host?.evaluateDynamicCondition(expr, player) ?: false
         }
         return if (negate) !result else result
     }
 
     private fun resolvePlaceholders(
-        context: OpusContext,
+        host: CoreHost,
         input: String,
         player: Player?,
         extra: Map<String, String>,
@@ -280,14 +258,11 @@ object SpecializedCommandExecutor {
                 .replace("{y}", loc.blockY.toString())
                 .replace("{z}", loc.blockZ.toString())
         }
-        val ph = context.getService<PlaceholderService>()
-        return if (ph != null) {
-            ph.applyPlaceholders(player, out)
-        } else {
-            out.replace("{player}", player?.name ?: "CONSOLE")
-                .replace("{online}", Bukkit.getOnlinePlayers().size.toString())
-                .replace("{max_players}", Bukkit.getMaxPlayers().toString())
-        }
+        val dynamicResolved = host.resolveDynamicPlaceholders(player, out)
+        return dynamicResolved
+            .replace("{player}", player?.name ?: "CONSOLE")
+            .replace("{online}", Bukkit.getOnlinePlayers().size.toString())
+            .replace("{max_players}", Bukkit.getMaxPlayers().toString())
     }
 
     private fun parseSimpleLocation(raw: String): Location? {

@@ -2,6 +2,7 @@ package opus.integration
 
 import me.clip.placeholderapi.expansion.PlaceholderExpansion
 import opus.core.OpusContext
+import opus.core.compat.PlatformCompat
 import org.bukkit.OfflinePlayer
 
 /**
@@ -16,7 +17,7 @@ class PlaceholderApiHook(
 
     override fun getAuthor(): String = "Opus"
 
-    override fun getVersion(): String = context.plugin.pluginMeta.version
+    override fun getVersion(): String = PlatformCompat.pluginVersion(context.plugin)
 
     override fun persist(): Boolean = true
 

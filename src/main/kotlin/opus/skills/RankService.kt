@@ -1,8 +1,6 @@
 package opus.skills
 
 import opus.core.config.OpusConfig
-import opus.core.config.RanksConfig
-import opus.core.player.OpusPlayerState
 import org.bukkit.entity.Player
 
 /**

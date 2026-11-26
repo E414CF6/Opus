@@ -1,6 +1,5 @@
-package opus.core.world
+package opus.skills
 
-import opus.core.config.ExperienceConfig
 import org.bukkit.Chunk
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
@@ -13,7 +12,13 @@ import org.bukkit.entity.Snowman
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
-import org.bukkit.event.block.*
+import org.bukkit.event.block.BlockBreakEvent
+import org.bukkit.event.block.BlockFormEvent
+import org.bukkit.event.block.BlockMultiPlaceEvent
+import org.bukkit.event.block.BlockPistonExtendEvent
+import org.bukkit.event.block.BlockPistonRetractEvent
+import org.bukkit.event.block.BlockPlaceEvent
+import org.bukkit.event.block.EntityBlockFormEvent
 import org.bukkit.event.entity.CreatureSpawnEvent
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent
 import org.bukkit.event.world.StructureGrowEvent
@@ -21,12 +26,10 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
 
 /**
- * Modern Paper 26.3 Chunk-PDC placed-block tracker replacing mcMMO's legacy region backup files.
- * Packs `(x & 15, y, z & 15)` into a 64-bit integer stored inside `Chunk.persistentDataContainer`.
- * All accesses happen on the chunk's owning region thread, making it 100% Folia-safe.
+ * Chunk-PDC placed-block tracker replacing mcMMO's legacy region backup files across Paper 1.20.4–26.3+.
  */
 class PlacedBlockTracker(
-    private val plugin: Plugin,
+    plugin: Plugin,
     private val experienceConfig: ExperienceConfig? = null,
 ) : Listener {
 
@@ -96,7 +99,6 @@ class PlacedBlockTracker(
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onBlockBreak(event: BlockBreakEvent) {
-        // Defer clear only if needed; callers check isPlayerPlaced at NORMAL/HIGH priority before MONITOR clears it
         clearPlaced(event.block)
     }
 
@@ -144,13 +146,11 @@ class PlacedBlockTracker(
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onCreatureSpawn(event: CreatureSpawnEvent) {
-        val reason = when (event.spawnReason) {
-            CreatureSpawnEvent.SpawnReason.SPAWNER, CreatureSpawnEvent.SpawnReason.TRIAL_SPAWNER -> "SPAWNER"
-
-            CreatureSpawnEvent.SpawnReason.SPAWNER_EGG, CreatureSpawnEvent.SpawnReason.DISPENSE_EGG -> "SPAWN_EGG"
-
-            CreatureSpawnEvent.SpawnReason.NETHER_PORTAL -> "NETHER_PORTAL"
-            CreatureSpawnEvent.SpawnReason.BREEDING -> "BREEDING"
+        val reason = when (event.spawnReason.name) {
+            "SPAWNER", "TRIAL_SPAWNER" -> "SPAWNER"
+            "SPAWNER_EGG", "DISPENSE_EGG" -> "SPAWN_EGG"
+            "NETHER_PORTAL" -> "NETHER_PORTAL"
+            "BREEDING" -> "BREEDING"
             else -> return
         }
         setSpawnReason(event.entity, reason)
@@ -171,9 +171,6 @@ class PlacedBlockTracker(
     companion object {
         private val EMPTY_ARRAY = LongArray(0)
 
-        /**
-         * Packs local chunk X (0..15), Z (0..15), and signed Y into a single 64-bit integer.
-         */
         fun pack(x: Int, y: Int, z: Int): Long {
             val lx = (x and 0xF).toLong()
             val lz = (z and 0xF).toLong()

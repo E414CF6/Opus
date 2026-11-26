@@ -1,9 +1,9 @@
 package opus
 
-import opus.core.config.ExperienceConfig
-import opus.core.player.OpusPlayerState
+import opus.skills.ExperienceConfig
 import opus.skills.LevelUpCommandService
 import opus.skills.LevelUpRunAs
+import opus.skills.OpusPlayerState
 import opus.skills.PerksService
 import opus.skills.SkillType
 import org.bukkit.configuration.file.YamlConfiguration

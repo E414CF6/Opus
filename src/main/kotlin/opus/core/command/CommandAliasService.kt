@@ -1,9 +1,10 @@
 package opus.core.command
 
-import opus.core.OpusContext
+import opus.core.CoreHost
 import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.command.Command
+import org.bukkit.command.CommandMap
 import org.bukkit.command.CommandSender
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Player
@@ -16,26 +17,25 @@ import org.bukkit.event.server.ServerCommandEvent
 import org.bukkit.event.server.TabCompleteEvent
 import java.io.File
 import java.lang.reflect.Method
+import java.util.LinkedHashMap
+import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * CMI-style command alias manager (`command-aliases.yml` + `aliases.yml`), modeled after Obsidian.
- *
- * Instead of registering 45+ standalone commands directly in `plugin.yml` / Brigadier,
- * all Opus module commands are anchored under `/opus` (`/mcmmo`), while standalone
- * commands (`/skills`, `/mining`, `/party`, `/mmohud`, etc.) and custom aliases (`aliases.yml`)
- * are dynamically registered into `CommandMap` and routed via preprocess/tab-complete handlers.
+ * CMI-style command alias manager (`command-aliases.yml` + `aliases.yml`).
+ * Anchors all subcommands under the root command while optionally registering non-colliding
+ * standalone aliases dynamically into Bukkit's `CommandMap`.
  */
-class CommandAliasService(private val context: OpusContext) : Listener {
+class CommandAliasService(private val host: CoreHost) : Listener {
 
-    private val commandAliasFile = File(context.plugin.dataFolder, "command-aliases.yml")
-    private val customAliasFile = File(context.plugin.dataFolder, "aliases.yml")
+    private val commandAliasFile = File(host.plugin.dataFolder, "command-aliases.yml")
+    private val customAliasFile = File(host.plugin.dataFolder, "aliases.yml")
 
     private val regularAliases = LinkedHashMap<String, CommandAliasEntry>()
     private val customAliases = LinkedHashMap<String, CommandAliasEntry>()
     private val disabledBaseSubcommands = ConcurrentHashMap.newKeySet<String>()
-    private val registeredCommands = LinkedHashMap<String, OpusAliasCommand>()
+    private val registeredCommands = LinkedHashMap<String, AliasCommandProxy>()
 
     @Volatile
     private var combinedAliases: Map<String, CommandAliasEntry> = emptyMap()
@@ -48,10 +48,6 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         }.getOrNull()
     }
 
-    /**
-     * Called at the end of `LifecycleEvents.COMMANDS` after all module subcommands have been captured
-     * into [OpusCommandRegistry].
-     */
     fun initializeFromRegistry() {
         loadRegularAliases()
         loadCustomAliases()
@@ -59,12 +55,8 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         reregisterCommandMapAliases(syncClients = false)
     }
 
-    /**
-     * Reloads both `command-aliases.yml` and `aliases.yml`, re-syncing dynamic `CommandMap`
-     * registrations and online player command trees.
-     */
     fun reload() {
-        if (context.commandRegistry.allSubcommands().isEmpty()) {
+        if (host.commandRegistry.allSubcommands().isEmpty()) {
             loadCustomAliases()
             rebuildCache()
             return
@@ -112,7 +104,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             }
             val nextCmd = commandTemplate?.trim()?.takeIf { it.isNotEmpty() }
                 ?: current.commands.firstOrNull()
-                ?: "opus ${current.targetSubcommand ?: cleanKey} $1-"
+                ?: "${host.rootCommandName} ${current.targetSubcommand ?: cleanKey} $1-"
 
             val entry = current.copy(
                 commands = listOf(nextCmd),
@@ -121,17 +113,13 @@ class CommandAliasService(private val context: OpusContext) : Listener {
                 baseDisabled = nextBaseDisabled,
             )
             regularAliases[cleanKey] = entry
-            if (current.type == CommandAliasType.BASE) {
-                if (nextBaseDisabled) {
-                    disabledBaseSubcommands.add(current.targetSubcommand ?: cleanKey)
-                } else {
-                    disabledBaseSubcommands.remove(current.targetSubcommand ?: cleanKey)
-                }
+            if (entry.type == CommandAliasType.BASE) {
+                if (nextBaseDisabled) disabledBaseSubcommands += cleanKey else disabledBaseSubcommands -= cleanKey
             }
             rebuildCache()
             entry
         }
-        context.scheduler.runAsync { saveRegularAliases() }
+        host.scheduler.runAsync { saveRegularAliasEntry(updated) }
         reregisterCommandMapAliases(syncClients = true)
         return updated
     }
@@ -146,10 +134,9 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         customTabs: List<String> = emptyList(),
     ) {
         val cleanName = name.trim().lowercase(Locale.ROOT).removePrefix("/")
-        if (cleanName.isEmpty() || commands.isEmpty()) return
-        // Prevent direct self-recursion just like Obsidian/CMI's AliasManager.addCustom
+        if (cleanName.isEmpty()) return
         if (commands.any { it.trim().removePrefix("/").equals(cleanName, ignoreCase = true) }) {
-            context.plugin.logger.warning("Ignored recursive custom alias '/$cleanName'.")
+            host.plugin.logger.warning("Ignored recursive custom alias '/$cleanName'.")
             return
         }
         synchronized(this) {
@@ -165,7 +152,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             )
             rebuildCache()
         }
-        context.scheduler.runAsync { saveCustomAliases() }
+        host.scheduler.runAsync { saveCustomAliases() }
         reregisterCommandMapAliases(syncClients = true)
     }
 
@@ -177,7 +164,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             ex
         }
         if (removed) {
-            context.scheduler.runAsync { saveCustomAliases() }
+            host.scheduler.runAsync { saveCustomAliases() }
             reregisterCommandMapAliases(syncClients = true)
         }
         return removed
@@ -190,32 +177,35 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             YamlConfiguration()
         }
 
+        val rootName = host.rootCommandName
+        val rootLabels = (listOf(rootName) + host.rootAliases).joinToString(", ") { "/$it" }
         yaml.options().setHeader(
             listOf(
-                "Opus Command Alias Configuration (CMI / Obsidian-style)",
-                "All Opus module commands are registered under /opus (<subcommand>) (alias /mcmmo).",
-                "Standalone commands below (e.g. /skills, /mining, /party) are registered dynamically as aliases.",
-                "Set 'enabled: false' for any alias to disable its standalone command and avoid plugin conflicts.",
+                "${host.pluginDisplayName} Dynamic Command Alias Configuration",
+                "All commands are anchored under /$rootName (<subcommand>) (aliases: $rootLabels).",
+                "Set 'enabled: true/false' to toggle standalone CommandMap registration.",
                 "Set 'tab: false' to disable tab completion for a standalone alias.",
-                "Set 'base-disabled: true' to disable '/opus <subcommand>' while keeping the standalone alias.",
+                "Set 'base-disabled: true' to disable '/$rootName <subcommand>' while keeping the standalone alias.",
             )
         )
 
         val newRegular = LinkedHashMap<String, CommandAliasEntry>()
         val newDisabledBase = HashSet<String>()
         var modified = !commandAliasFile.exists()
+        val standaloneDefault = host.registerStandaloneAliases
 
-        for (sub in context.commandRegistry.allSubcommands()) {
+        for (sub in host.commandRegistry.allSubcommands()) {
             val primaryPath = "aliases.${sub.name}"
-            val primaryTarget = "opus ${sub.name} $1-"
+            val primaryTarget = "$rootName ${sub.name} $1-"
+            val primaryDefaultEnabled = sub.standaloneByDefault && sub.name !in sub.disabledStandaloneAliases
             if (!yaml.isConfigurationSection(primaryPath)) {
                 yaml.set("$primaryPath.command", primaryTarget)
-                yaml.set("$primaryPath.enabled", true)
+                yaml.set("$primaryPath.enabled", primaryDefaultEnabled)
                 yaml.set("$primaryPath.tab", true)
                 yaml.set("$primaryPath.base-disabled", false)
                 modified = true
             }
-            val primaryEnabled = yaml.getBoolean("$primaryPath.enabled", true)
+            val primaryEnabled = yaml.getBoolean("$primaryPath.enabled", primaryDefaultEnabled)
             val primaryTab = yaml.getBoolean("$primaryPath.tab", true)
             val primaryBaseDisabled = yaml.getBoolean("$primaryPath.base-disabled", false)
             val primaryCmd = yaml.getString("$primaryPath.command", primaryTarget) ?: primaryTarget
@@ -227,7 +217,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             newRegular[sub.name] = CommandAliasEntry(
                 alias = sub.name,
                 commands = listOf(primaryCmd),
-                enabled = primaryEnabled && context.config.registerStandaloneAliases,
+                enabled = primaryEnabled && standaloneDefault,
                 type = CommandAliasType.BASE,
                 targetSubcommand = sub.name,
                 tabComplete = primaryTab,
@@ -237,21 +227,22 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             for (secAlias in sub.aliases) {
                 if (newRegular.containsKey(secAlias)) continue
                 val secPath = "aliases.$secAlias"
-                val secTarget = "opus ${sub.name} $1-"
+                val secTarget = "$rootName ${sub.name} $1-"
+                val secDefaultEnabled = secAlias !in sub.disabledStandaloneAliases
                 if (!yaml.isConfigurationSection(secPath)) {
                     yaml.set("$secPath.command", secTarget)
-                    yaml.set("$secPath.enabled", true)
+                    yaml.set("$secPath.enabled", secDefaultEnabled)
                     yaml.set("$secPath.tab", true)
                     modified = true
                 }
-                val secEnabled = yaml.getBoolean("$secPath.enabled", true)
+                val secEnabled = yaml.getBoolean("$secPath.enabled", secDefaultEnabled)
                 val secTab = yaml.getBoolean("$secPath.tab", true)
                 val secCmd = yaml.getString("$secPath.command", secTarget) ?: secTarget
 
                 newRegular[secAlias] = CommandAliasEntry(
                     alias = secAlias,
                     commands = listOf(secCmd),
-                    enabled = secEnabled && context.config.registerStandaloneAliases,
+                    enabled = secEnabled && standaloneDefault,
                     type = CommandAliasType.SUBBASE,
                     targetSubcommand = sub.name,
                     tabComplete = secTab,
@@ -264,7 +255,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
                 commandAliasFile.parentFile?.mkdirs()
                 yaml.save(commandAliasFile)
             }.onFailure { err ->
-                context.plugin.logger.warning("Failed to save command-aliases.yml: ${err.message}")
+                host.plugin.logger.warning("Failed to save command-aliases.yml: ${err.message}")
             }
         }
 
@@ -276,37 +267,25 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         disabledBaseSubcommands.addAll(newDisabledBase)
     }
 
-    private fun saveRegularAliases() {
-        val snapshot = synchronized(this) { regularAliases.toMap() }
+    private fun saveRegularAliasEntry(entry: CommandAliasEntry) {
         val yaml = if (commandAliasFile.exists()) {
             YamlConfiguration.loadConfiguration(commandAliasFile)
         } else {
             YamlConfiguration()
         }
-        yaml.options().setHeader(
-            listOf(
-                "Opus Command Alias Configuration (CMI / Obsidian-style)",
-                "All Opus module commands are registered under /opus (<subcommand>) (alias /mcmmo).",
-                "Standalone commands below (e.g. /skills, /mining, /party) are registered dynamically as aliases.",
-                "Set 'enabled: false' for any alias to disable its standalone command and avoid plugin conflicts.",
-                "Set 'tab: false' to disable tab completion for a standalone alias.",
-                "Set 'base-disabled: true' to disable '/opus <subcommand>' while keeping the standalone alias.",
-            )
+        val path = "aliases.${entry.alias}"
+        yaml.set(
+            "$path.command",
+            entry.commands.firstOrNull() ?: "${host.rootCommandName} ${entry.targetSubcommand ?: entry.alias} $1-"
         )
-        for ((key, entry) in snapshot) {
-            val path = "aliases.$key"
-            yaml.set("$path.command", entry.commands.firstOrNull() ?: "opus ${entry.targetSubcommand ?: key} $1-")
-            yaml.set("$path.enabled", entry.enabled)
-            yaml.set("$path.tab", entry.tabComplete)
-            if (entry.type == CommandAliasType.BASE) {
-                yaml.set("$path.base-disabled", entry.baseDisabled)
-            }
+        yaml.set("$path.enabled", entry.enabled)
+        yaml.set("$path.tab", entry.tabComplete)
+        if (entry.type == CommandAliasType.BASE) {
+            yaml.set("$path.base-disabled", entry.baseDisabled)
         }
         runCatching {
             commandAliasFile.parentFile?.mkdirs()
             yaml.save(commandAliasFile)
-        }.onFailure { err ->
-            context.plugin.logger.warning("Failed to save command-aliases.yml: ${err.message}")
         }
     }
 
@@ -361,7 +340,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
                 }
                 if (entry != null) {
                     if (entry.commands.any { it.trim().removePrefix("/").equals(key, ignoreCase = true) }) {
-                        context.plugin.logger.warning("Ignored recursive custom alias '/$key'.")
+                        host.plugin.logger.warning("Ignored recursive custom alias '/$key'.")
                     } else {
                         loaded[key] = entry
                     }
@@ -376,10 +355,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
     }
 
     private fun createDefaultCustomAliases() {
-        val defaults = linkedMapOf(
-            "rpgguide" to listOf("player: opus mmoinfo"),
-            "skillpower" to listOf("actionbar: <gold>⚡ <white>{player}</white> Power Level: <yellow>{power_level}</yellow></gold>"),
-        )
+        val defaults = host.defaultCustomAliases
         val yaml = YamlConfiguration()
         for ((k, v) in defaults) {
             yaml.set("aliases.$k", v)
@@ -427,16 +403,31 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         }
     }
 
+    private fun resolveCommandMap(): CommandMap? =
+        runCatching { Bukkit.getCommandMap() }.getOrElse {
+            runCatching {
+                val server = Bukkit.getServer()
+                val field = server.javaClass.getDeclaredField("commandMap")
+                field.isAccessible = true
+                field.get(server) as? CommandMap
+            }.getOrNull()
+        }
+
+    private fun rootTokens(): Set<String> =
+        (setOf(host.rootCommandName.lowercase(Locale.ROOT)) + host.rootAliases.map { it.lowercase(Locale.ROOT) })
+
     @Synchronized
     private fun reregisterCommandMapAliases(syncClients: Boolean) {
-        val commandMap = runCatching { Bukkit.getCommandMap() }.getOrNull() ?: return
+        val commandMap = resolveCommandMap() ?: return
         unregisterCommandMapAliases()
 
+        val roots = rootTokens()
+        val namespace = host.rootCommandName.lowercase(Locale.ROOT)
         val baseEntries = LinkedHashMap<String, CommandAliasEntry>()
         for (entry in combinedAliases.values) {
             if (!entry.enabled) continue
             val base = entry.baseCommand
-            if (base.isEmpty() || base == "opus" || base == "mcmmo") continue
+            if (base.isEmpty() || base in roots) continue
             val existing = baseEntries[base]
             if (existing == null || (existing.type == CommandAliasType.CUSTOM && entry.type != CommandAliasType.CUSTOM)) {
                 baseEntries[base] = entry
@@ -445,10 +436,10 @@ class CommandAliasService(private val context: OpusContext) : Listener {
 
         for ((base, entry) in baseEntries) {
             val desc = entry.targetSubcommand?.let {
-                context.commandRegistry.getSubcommand(it)?.description
-            }.orEmpty().ifEmpty { "Opus command alias" }
-            val proxy = OpusAliasCommand(base, this, desc)
-            commandMap.register("opus", proxy)
+                host.commandRegistry.getSubcommand(it)?.description
+            }.orEmpty().ifEmpty { "${host.pluginDisplayName} command alias" }
+            val proxy = AliasCommandProxy(base, this, desc)
+            commandMap.register(namespace, proxy)
             registeredCommands[base] = proxy
         }
 
@@ -460,16 +451,15 @@ class CommandAliasService(private val context: OpusContext) : Listener {
     @Synchronized
     private fun unregisterCommandMapAliases() {
         if (registeredCommands.isEmpty()) return
-        val commandMap = runCatching { Bukkit.getCommandMap() }.getOrNull() ?: return
-        val known: MutableMap<String, Command> = commandMap.knownCommands
+        val commandMap = resolveCommandMap() ?: return
+        val known: MutableMap<String, Command>? = runCatching { commandMap.knownCommands }.getOrNull()
+        val namespace = host.rootCommandName.lowercase(Locale.ROOT)
 
         for ((base, cmd) in registeredCommands) {
-            if (known[base] === cmd) {
-                known.remove(base)
-            }
-            val namespaced = "opus:$base"
-            if (known[namespaced] === cmd) {
-                known.remove(namespaced)
+            if (known != null) {
+                if (known[base] === cmd) known.remove(base)
+                val namespaced = "$namespace:$base"
+                if (known[namespaced] === cmd) known.remove(namespaced)
             }
             cmd.unregister(commandMap)
         }
@@ -483,7 +473,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         if (Bukkit.isPrimaryThread()) {
             Bukkit.getOnlinePlayers().forEach { it.updateCommands() }
         } else {
-            context.scheduler.runGlobal {
+            host.scheduler.runGlobal {
                 Bukkit.getOnlinePlayers().forEach { it.updateCommands() }
             }
         }
@@ -496,13 +486,14 @@ class CommandAliasService(private val context: OpusContext) : Listener {
 
         if (entry.type == CommandAliasType.CUSTOM) {
             if (!entry.requiresPerm) return true
-            return sender.hasPermission("opus.customalias.${entry.permissionKey}") ||
-                sender.hasPermission("opus.admin")
+            return sender.hasPermission("${host.customAliasPermissionPrefix}${entry.permissionKey}") ||
+                    sender.hasPermission(host.adminPermission)
         }
 
         val subName = entry.targetSubcommand ?: return true
-        val sub = context.commandRegistry.getSubcommand(subName) ?: return true
-        return sub.node.canUse(CommandSourceResolver.resolve(sender))
+        val sub = host.commandRegistry.getSubcommand(subName) ?: return true
+        val perm = sub.permission ?: return true
+        return sender.hasPermission(perm) || sender.hasPermission(host.adminPermission)
     }
 
     fun executeFromCommandMap(sender: CommandSender, commandLabel: String, args: Array<out String>): Boolean {
@@ -512,16 +503,16 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         if (!entry.enabled) return false
 
         if (entry.type == CommandAliasType.CUSTOM && entry.requiresPerm &&
-            !sender.hasPermission("opus.customalias.${entry.permissionKey}") &&
-            !sender.hasPermission("opus.admin")
+            !sender.hasPermission("${host.customAliasPermissionPrefix}${entry.permissionKey}") &&
+            !sender.hasPermission(host.adminPermission)
         ) {
-            context.locale.send(sender, "general.no-permission")
+            host.locale.send(sender, "general.no-permission")
             return true
         }
 
         val depth = dispatchDepth.get()
         if (depth >= MAX_ALIAS_DISPATCH_DEPTH) {
-            context.plugin.logger.warning("Prevented recursive alias dispatch for '/$rawCommand'.")
+            host.plugin.logger.warning("Prevented recursive alias dispatch for '/$rawCommand'.")
             return false
         }
 
@@ -536,7 +527,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             } else {
                 val remainder = rawCommand.removePrefix(entry.alias).trim()
                 SpecializedCommandExecutor.executeAll(
-                    context,
+                    host,
                     expanded,
                     sender as? Player,
                     mapOf("args" to remainder, "player" to sender.name),
@@ -575,42 +566,24 @@ class CommandAliasService(private val context: OpusContext) : Listener {
                 return rawChoices.filter { it.startsWith(prefix, ignoreCase = true) }
             }
             val clean = entry.cleanCommand.removePrefix("/").trim()
+            val cleanTokens = clean.split(Regex("\\s+"))
             if (!AliasMatcher.isSpecializedAlias(entry.commands) &&
-                (clean.startsWith("opus ", ignoreCase = true) || clean.startsWith("mcmmo ", ignoreCase = true))
+                cleanTokens.size >= 2 &&
+                cleanTokens[0].lowercase(Locale.ROOT) in rootTokens()
             ) {
-                val expandedForTab = if (args.isEmpty()) clean else "$clean $argPart"
-                return suggestViaBrigadier(sender, expandedForTab, location)
+                val sub = host.commandRegistry.getSubcommand(cleanTokens[1]) ?: return emptyList()
+                val combinedArgs = cleanTokens.drop(2) + args.toList()
+                return sub.tabCompleter?.complete(sender, combinedArgs.toTypedArray()).orEmpty()
             }
             return emptyList()
         }
 
         val subTarget = entry.targetSubcommand ?: return emptyList()
-        val expanded = if (args.isEmpty()) "opus $subTarget " else "opus $subTarget $argPart"
-        return suggestViaBrigadier(sender, expanded, location)
-    }
-
-    private fun suggestViaBrigadier(
-        sender: CommandSender,
-        expandedCommand: String,
-        location: Location?,
-    ): List<String> {
-        val dispatcher = context.commandRegistry.localDispatcher
-        val sourceStack = CommandSourceResolver.resolve(sender, location)
-        val parseResults = dispatcher.parse(expandedCommand, sourceStack)
-        val suggestions = runCatching {
-            dispatcher.getCompletionSuggestions(parseResults).get()
-        }.getOrNull() ?: return emptyList()
-
-        val lastWordStart = expandedCommand.lastIndexOf(' ') + 1
-        return suggestions.list.mapNotNull { suggestion ->
-            val start = suggestion.range.start.coerceIn(0, expandedCommand.length)
-            val applied = expandedCommand.substring(0, start) + suggestion.text
-            if (applied.length >= lastWordStart) {
-                applied.substring(lastWordStart)
-            } else {
-                suggestion.text
-            }
-        }.distinct()
+        val sub = host.commandRegistry.getSubcommand(subTarget) ?: return emptyList()
+        if (sub.permission != null && !sender.hasPermission(sub.permission) && !sender.hasPermission(host.adminPermission)) {
+            return emptyList()
+        }
+        return sub.tabCompleter?.complete(sender, args).orEmpty()
     }
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
@@ -620,8 +593,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         val disabledSub = extractDisabledBaseSubcommand(raw)
         if (disabledSub != null) {
             event.isCancelled = true
-            context.locale.send(event.player, "general.command-disabled", "command" to disabledSub)
-            context.actionBar.pushTransientLocale(event.player, "general.command-disabled", "command" to disabledSub)
+            host.messagesCompatSendDisabled(event.player, disabledSub)
             return
         }
 
@@ -629,11 +601,11 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         if (!entry.enabled) return
 
         if (entry.type == CommandAliasType.CUSTOM && entry.requiresPerm &&
-            !event.player.hasPermission("opus.customalias.${entry.permissionKey}") &&
-            !event.player.hasPermission("opus.admin")
+            !event.player.hasPermission("${host.customAliasPermissionPrefix}${entry.permissionKey}") &&
+            !event.player.hasPermission(host.adminPermission)
         ) {
             event.isCancelled = true
-            context.locale.send(event.player, "general.no-permission")
+            host.locale.send(event.player, "general.no-permission")
             return
         }
 
@@ -649,7 +621,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             event.isCancelled = true
             val remainder = raw.removePrefix(entry.alias).trim()
             SpecializedCommandExecutor.executeAll(
-                context,
+                host,
                 expanded,
                 event.player,
                 mapOf("args" to remainder, "player" to event.player.name),
@@ -663,7 +635,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         val disabledSub = extractDisabledBaseSubcommand(raw)
         if (disabledSub != null) {
             event.isCancelled = true
-            context.locale.send(event.sender, "general.command-disabled", "command" to disabledSub)
+            host.messagesCompatSendDisabled(event.sender, disabledSub)
             return
         }
 
@@ -682,7 +654,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             event.isCancelled = true
             val remainder = raw.removePrefix(entry.alias).trim()
             SpecializedCommandExecutor.executeAll(
-                context,
+                host,
                 expanded,
                 null,
                 mapOf("args" to remainder, "player" to event.sender.name),
@@ -696,7 +668,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         val disabledSub = extractDisabledBaseSubcommand(raw)
         if (disabledSub != null) {
             event.isCancelled = true
-            context.locale.send(event.sender, "general.command-disabled", "command" to disabledSub)
+            host.messagesCompatSendDisabled(event.sender, disabledSub)
             return
         }
 
@@ -715,7 +687,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
             event.isCancelled = true
             val remainder = raw.removePrefix(entry.alias).trim()
             SpecializedCommandExecutor.executeAll(
-                context,
+                host,
                 expanded,
                 null,
                 mapOf("args" to remainder, "player" to event.sender.name),
@@ -736,8 +708,8 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         for (entry in combinedAliases.values) {
             if (!entry.enabled || entry.type != CommandAliasType.CUSTOM || !entry.tabComplete) continue
             if (entry.requiresPerm &&
-                !event.sender.hasPermission("opus.customalias.${entry.permissionKey}") &&
-                !event.sender.hasPermission("opus.admin")
+                !event.sender.hasPermission("${host.customAliasPermissionPrefix}${entry.permissionKey}") &&
+                !event.sender.hasPermission(host.adminPermission)
             ) {
                 continue
             }
@@ -758,6 +730,10 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         }
     }
 
+    private fun CoreHost.messagesCompatSendDisabled(sender: CommandSender, disabledSub: String) {
+        locale.send(sender, "general.command-disabled", "command" to disabledSub)
+    }
+
     private fun normalizeCommandInput(input: String): String? {
         var trimmed = input.trim()
         if (trimmed.startsWith("/:")) trimmed = trimmed.substring(2)
@@ -765,10 +741,11 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         trimmed = trimmed.trimStart()
         if (trimmed.isEmpty()) return null
 
+        val prefix = "${host.rootCommandName.lowercase(Locale.ROOT)}:"
         val firstSpace = trimmed.indexOf(' ')
         val firstToken = if (firstSpace < 0) trimmed else trimmed.substring(0, firstSpace)
-        val cleanFirst = if (firstToken.startsWith("opus:", ignoreCase = true)) {
-            firstToken.substring("opus:".length)
+        val cleanFirst = if (firstToken.startsWith(prefix, ignoreCase = true)) {
+            firstToken.substring(prefix.length)
         } else {
             firstToken
         }
@@ -779,7 +756,7 @@ class CommandAliasService(private val context: OpusContext) : Listener {
         val tokens = rawCommand.split(Regex("\\s+"), limit = 3)
         if (tokens.size < 2) return null
         val root = tokens[0].lowercase(Locale.ROOT)
-        if (root != "opus" && root != "mcmmo") return null
+        if (root !in rootTokens()) return null
         val sub = tokens[1].lowercase(Locale.ROOT)
         return if (isBaseDisabled(sub)) sub else null
     }

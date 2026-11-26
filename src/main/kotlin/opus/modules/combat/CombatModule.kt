@@ -1,16 +1,16 @@
 package opus.modules.combat
 
 import opus.core.OpusContext
-import opus.core.gui.OpusDialogs
-import opus.core.module.OpusModule
+import opus.core.compat.PlatformCompat
+import opus.core.module.FeatureModule
 import opus.core.text.TextFormatter
 import opus.events.XpGainReason
+import opus.rpg
 import opus.skills.SkillType
 import opus.skills.SubSkillType
 import opus.skills.SuperAbilityType
+import opus.skills.subSkillName
 import org.bukkit.*
-import org.bukkit.attribute.Attribute
-import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.*
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
@@ -26,7 +26,6 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.Damageable
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.potion.PotionEffect
-import org.bukkit.potion.PotionEffectType
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
@@ -39,7 +38,7 @@ interface PartyRelationHook {
  * Handles all 10 Combat & Support skills: Swords, Axes, Archery, Crossbows, Tridents,
  * Maces, Spears, Unarmed, Taming, and Acrobatics.
  */
-class CombatModule(private val context: OpusContext) : OpusModule {
+class CombatModule(private val context: OpusContext) : FeatureModule {
     override val id = "combat"
     override val description =
         "Swords, Axes, Archery, Crossbows, Tridents, Maces, Spears, Unarmed, Taming, and Acrobatics"
@@ -54,6 +53,22 @@ class CombatModule(private val context: OpusContext) : OpusModule {
 }
 
 class CombatListener(private val context: OpusContext) : Listener {
+
+    private val rpg get() = context.rpg
+    private val maxHealthAttr by lazy { PlatformCompat.resolveAttribute("MAX_HEALTH", "GENERIC_MAX_HEALTH") }
+    private val attackDamageAttr by lazy { PlatformCompat.resolveAttribute("ATTACK_DAMAGE", "GENERIC_ATTACK_DAMAGE") }
+    private val infinityEnchant by lazy { PlatformCompat.resolveEnchantment("INFINITY", "ARROW_INFINITE") }
+    private val featherFallingEnchant by lazy {
+        PlatformCompat.resolveEnchantment(
+            "FEATHER_FALLING",
+            "PROTECTION_FALL"
+        )
+    }
+    private val nauseaEffect by lazy { PlatformCompat.resolvePotionEffect("NAUSEA", "CONFUSION") }
+    private val slownessEffect by lazy { PlatformCompat.resolvePotionEffect("SLOWNESS", "SLOW") }
+    private val speedEffect by lazy { PlatformCompat.resolvePotionEffect("SPEED") }
+    private val explosionParticle by lazy { PlatformCompat.resolveParticle("EXPLOSION", "EXPLOSION_LARGE") }
+    private val smokeParticle by lazy { PlatformCompat.resolveParticle("SMOKE", "SMOKE_NORMAL") }
 
     private val aoeGuard = ConcurrentHashMap.newKeySet<UUID>()
     private val dodgeXpPerMob = ConcurrentHashMap<UUID, Double>()
@@ -96,7 +111,7 @@ class CombatListener(private val context: OpusContext) : Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onSummonBreed(event: EntityBreedEvent) {
-        if (!context.skillsConfig.boolean("taming.call-of-the-wild.prevent-breeding", true)) return
+        if (!rpg.skillsConfig.boolean("taming.call-of-the-wild.prevent-breeding", true)) return
         if (event.mother.uniqueId in transientSummonIds || event.father.uniqueId in transientSummonIds) {
             event.isCancelled = true
         }
@@ -155,22 +170,22 @@ class CombatListener(private val context: OpusContext) : Listener {
                 item.type == Material.BOW -> SkillType.ARCHERY
                 item.type == Material.CROSSBOW -> SkillType.CROSSBOWS
                 item.type == Material.TRIDENT -> SkillType.TRIDENTS
-                item.type == Material.MACE -> SkillType.MACES
-                Tag.ITEMS_SPEARS.isTagged(item.type) -> SkillType.SPEARS
+                PlatformCompat.isMace(item.type) -> SkillType.MACES
+                PlatformCompat.isSpear(item.type) -> SkillType.SPEARS
                 else -> null
             } ?: return
-            context.progression.readyTool(player, skill)
+            rpg.progression.readyTool(player, skill)
         }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onBlockBreakUnarmed(event: BlockBreakEvent) {
         val player = event.player
-        val state = context.players.getCached(player)
+        val state = rpg.players.getCached(player)
         val hand = player.inventory.itemInMainHand
         if (hand.type != Material.AIR) return
         if (!state.isAbilityActive(SuperAbilityType.BERSERK)) return
-        if (!context.ranks.hasUnlocked(state, SubSkillType.UNARMED_BLOCK_CRACKER, player)) return
+        if (!rpg.ranks.hasUnlocked(state, SubSkillType.UNARMED_BLOCK_CRACKER, player)) return
 
         val block = event.block
         val cracked = when (block.type) {
@@ -194,12 +209,12 @@ class CombatListener(private val context: OpusContext) : Listener {
         val player = event.player
         val target = event.rightClicked as? Tameable ?: return
         if (!target.isTamed) return
-        val state = context.players.getCached(player)
-        if (!context.ranks.hasUnlocked(state, SubSkillType.TAMING_BEAST_LORE, player)) return
+        val state = rpg.players.getCached(player)
+        if (!rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_BEAST_LORE, player)) return
 
         val item = player.inventory.itemInMainHand.type
         if (item != Material.BONE && item != Material.AIR) return
-        val maxHp = (target as? LivingEntity)?.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+        val maxHp = maxHealthAttr?.let { (target as? LivingEntity)?.getAttribute(it)?.value } ?: 20.0
         val hp = (target as? LivingEntity)?.health ?: 20.0
         val ownerName = target.owner?.name ?: "Unknown"
         context.locale.sendActionBar(
@@ -220,28 +235,23 @@ class CombatListener(private val context: OpusContext) : Listener {
                 SubSkillType.TAMING_SHARPENED_CLAWS,
                 SubSkillType.TAMING_FAST_FOOD_SERVICE,
                 SubSkillType.TAMING_PUMMEL,
-            ).filter { context.ranks.hasUnlocked(state, it, player) }
+            ).filter { rpg.ranks.hasUnlocked(state, it, player) }
                 .joinToString(", ") { context.locale.subSkillName(it) }
                 .ifEmpty { "-" }
 
-            OpusDialogs.showNotice(
-                context = context,
+            context.dialogs.openNotice(
                 player = player,
-                title = context.locale.component("dialog.beast-lore-title", mapOf("mob" to target.name)),
-                body = listOf(
-                    OpusDialogs.itemBody(
-                        ItemStack(Material.BONE),
-                        descriptionRaw = context.locale.raw(
-                            "gameplay.taming-beast-lore",
-                            "mob" to target.name,
-                            "owner" to ownerName,
-                            "hp" to "%.1f".format(hp),
-                            "max_hp" to "%.1f".format(maxHp),
-                        ),
-                    ),
-                    OpusDialogs.plainBody(
-                        context.locale.raw("dialog.beast-lore-perks", "perks" to tamingPerks)
-                    ),
+                titleRaw = context.locale.raw("dialog.beast-lore-title", "mob" to target.name),
+                icon = ItemStack(Material.BONE),
+                headerRaw = context.locale.raw(
+                    "gameplay.taming-beast-lore",
+                    "mob" to target.name,
+                    "owner" to ownerName,
+                    "hp" to "%.1f".format(hp),
+                    "max_hp" to "%.1f".format(maxHp),
+                ),
+                extraLines = listOf(
+                    context.locale.raw("dialog.beast-lore-perks", "perks" to tamingPerks),
                 ),
             )
         }
@@ -250,8 +260,8 @@ class CombatListener(private val context: OpusContext) : Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onEntityTame(event: EntityTameEvent) {
         val owner = event.owner as? Player ?: return
-        val xp = context.experienceConfig.tamingXp(event.entityType)
-        context.progression.awardXp(owner, SkillType.TAMING, xp, XpGainReason.OTHER)
+        val xp = rpg.experienceConfig.tamingXp(event.entityType)
+        rpg.progression.awardXp(owner, SkillType.TAMING, xp, XpGainReason.OTHER)
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -261,14 +271,17 @@ class CombatListener(private val context: OpusContext) : Listener {
         val proj = event.projectile as? AbstractArrow ?: return
 
         if (bow.type == Material.BOW) {
-            if (bow.containsEnchantment(Enchantment.INFINITY)) {
+            if (infinityEnchant?.let { bow.containsEnchantment(it) } == true) {
                 proj.persistentDataContainer.set(infinityArrowKey, PersistentDataType.BYTE, 1)
             }
-            if (context.progression.tryActivateAbility(player, SkillType.ARCHERY)) {
+            if (rpg.progression.tryActivateAbility(player, SkillType.ARCHERY)) {
                 proj.persistentDataContainer.set(explosiveShotKey, PersistentDataType.BYTE, 1)
             }
         } else if (bow.type == Material.CROSSBOW) {
-            if (context.progression.tryActivateAbility(player, SkillType.CROSSBOWS)) {
+            if (proj is Arrow) {
+                PlatformCompat.setArrowWeapon(proj, bow)
+            }
+            if (rpg.progression.tryActivateAbility(player, SkillType.CROSSBOWS)) {
                 // Super Shotgun: fire 2 extra angled bolts
                 val vel = proj.velocity
                 for (angle in listOf(-0.12, 0.12)) {
@@ -279,7 +292,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                         0.5f
                     )
                     extra.shooter = player
-                    extra.weapon = ItemStack(Material.CROSSBOW)
+                    PlatformCompat.setArrowWeapon(extra, ItemStack(Material.CROSSBOW))
                     extra.pickupStatus = AbstractArrow.PickupStatus.DISALLOWED
                 }
             }
@@ -299,12 +312,12 @@ class CombatListener(private val context: OpusContext) : Listener {
 
         val hitBlock = event.hitBlock ?: return
         val face = event.hitBlockFace ?: return
-        if (arrow.weapon?.type != Material.CROSSBOW) return
+        if (PlatformCompat.getArrowWeaponType(arrow) != Material.CROSSBOW) return
 
-        val state = context.players.getCached(shooter)
-        if (!context.ranks.hasUnlocked(state, SubSkillType.CROSSBOWS_TRICK_SHOT, shooter)) return
+        val state = rpg.players.getCached(shooter)
+        if (!rpg.ranks.hasUnlocked(state, SubSkillType.CROSSBOWS_TRICK_SHOT, shooter)) return
 
-        val maxBounces = context.ranks.getRank(state, SubSkillType.CROSSBOWS_TRICK_SHOT)
+        val maxBounces = rpg.ranks.getRank(state, SubSkillType.CROSSBOWS_TRICK_SHOT)
         val bounces = arrow.persistentDataContainer.get(bounceCountKey, PersistentDataType.INTEGER) ?: 0
         if (bounces >= maxBounces) return
 
@@ -319,7 +332,7 @@ class CombatListener(private val context: OpusContext) : Listener {
         reflectedArrow.isCritical = arrow.isCritical
         reflectedArrow.pierceLevel = arrow.pierceLevel
         reflectedArrow.pickupStatus = arrow.pickupStatus
-        reflectedArrow.weapon = ItemStack(Material.CROSSBOW)
+        PlatformCompat.setArrowWeapon(reflectedArrow, ItemStack(Material.CROSSBOW))
         arrow.basePotionType?.let {
             reflectedArrow.itemStack = ItemStack(Material.TIPPED_ARROW)
             reflectedArrow.basePotionType = it
@@ -337,7 +350,7 @@ class CombatListener(private val context: OpusContext) : Listener {
         val entity = event.entity
 
         // Opus God Mode protection
-        if (entity is Player && context.players.getCached(entity).godMode) {
+        if (entity is Player && rpg.players.getCached(entity).godMode) {
             event.isCancelled = true
             return
         }
@@ -351,12 +364,12 @@ class CombatListener(private val context: OpusContext) : Listener {
         // Taming wolf damage defenses (Thick Fur, Shock Proof, Environmentally Aware, Holy Hound)
         if (entity is Wolf && entity.isTamed) {
             val owner = entity.owner as? Player ?: return
-            val state = context.players.getCached(owner)
+            val state = rpg.players.getCached(owner)
             when (event.cause) {
                 EntityDamageEvent.DamageCause.BLOCK_EXPLOSION,
                 EntityDamageEvent.DamageCause.ENTITY_EXPLOSION -> {
-                    if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_SHOCK_PROOF, owner)) {
-                        val mod = context.skillsConfig.double("taming.shock-proof.modifier", 6.0).coerceAtLeast(1.0)
+                    if (rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_SHOCK_PROOF, owner)) {
+                        val mod = rpg.skillsConfig.double("taming.shock-proof.modifier", 6.0).coerceAtLeast(1.0)
                         event.damage /= mod
                     }
                 }
@@ -364,12 +377,12 @@ class CombatListener(private val context: OpusContext) : Listener {
                 EntityDamageEvent.DamageCause.FIRE,
                 EntityDamageEvent.DamageCause.FIRE_TICK,
                 EntityDamageEvent.DamageCause.LAVA -> {
-                    if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_THICK_FUR, owner)) {
-                        val mod = context.skillsConfig.double("taming.thick-fur.modifier", 2.0).coerceAtLeast(1.0)
+                    if (rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_THICK_FUR, owner)) {
+                        val mod = rpg.skillsConfig.double("taming.thick-fur.modifier", 2.0).coerceAtLeast(1.0)
                         event.damage /= mod
                     }
                     if (event.cause == EntityDamageEvent.DamageCause.LAVA &&
-                        context.ranks.hasUnlocked(state, SubSkillType.TAMING_ENVIRONMENTALLY_AWARE, owner)
+                        rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_ENVIRONMENTALLY_AWARE, owner)
                     ) {
                         event.isCancelled = true
                         entity.teleport(owner.location)
@@ -378,7 +391,7 @@ class CombatListener(private val context: OpusContext) : Listener {
 
                 EntityDamageEvent.DamageCause.FALL,
                 EntityDamageEvent.DamageCause.CONTACT -> {
-                    if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_ENVIRONMENTALLY_AWARE, owner)) {
+                    if (rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_ENVIRONMENTALLY_AWARE, owner)) {
                         event.isCancelled = true
                     }
                 }
@@ -386,9 +399,9 @@ class CombatListener(private val context: OpusContext) : Listener {
                 EntityDamageEvent.DamageCause.MAGIC,
                 EntityDamageEvent.DamageCause.POISON,
                 EntityDamageEvent.DamageCause.WITHER -> {
-                    if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_HOLY_HOUND, owner)) {
+                    if (rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_HOLY_HOUND, owner)) {
                         event.isCancelled = true
-                        val maxHp = entity.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+                        val maxHp = maxHealthAttr?.let { entity.getAttribute(it)?.value } ?: 20.0
                         entity.health = (entity.health + event.damage * 0.5).coerceAtMost(maxHp)
                     }
                 }
@@ -404,7 +417,7 @@ class CombatListener(private val context: OpusContext) : Listener {
         if (isInvalidCombatEntity(defender) || isInvalidCombatEntity(event.damager)) return
 
         // Opus God Mode protection
-        if (defender is Player && context.players.getCached(defender).godMode) {
+        if (defender is Player && rpg.players.getCached(defender).godMode) {
             event.isCancelled = true
             return
         }
@@ -457,20 +470,20 @@ class CombatListener(private val context: OpusContext) : Listener {
     }
 
     private fun handleAcrobaticsFall(player: Player, event: EntityDamageEvent) {
-        val state = context.players.getCached(player)
-        if (!context.ranks.hasUnlocked(state, SubSkillType.ACROBATICS_ROLL, player)) return
+        val state = rpg.players.getCached(player)
+        if (!rpg.ranks.hasUnlocked(state, SubSkillType.ACROBATICS_ROLL, player)) return
         val level = state.getLevel(SkillType.ACROBATICS)
-        val maxLvl = context.skillsConfig.maxBonusLevel("acrobatics.roll", context.config.retroMode)
-        val maxChance = context.skillsConfig.double("acrobatics.roll.chance-max", 100.0)
-        var chance = context.probability.linearChancePercent(level, maxLvl, maxChance, player)
+        val maxLvl = rpg.skillsConfig.maxBonusLevel("acrobatics.roll", context.config.retroMode)
+        val maxChance = rpg.skillsConfig.double("acrobatics.roll.chance-max", 100.0)
+        var chance = rpg.probability.linearChancePercent(level, maxLvl, maxChance, player)
         val isGraceful = player.isSneaking
         if (isGraceful) chance = (chance * 2.0).coerceAtMost(100.0)
 
-        if (context.probability.rollPercent(chance)) {
+        if (rpg.probability.rollPercent(chance)) {
             val threshold = if (isGraceful) {
-                context.skillsConfig.double("acrobatics.roll.graceful-damage-threshold", 14.0)
+                rpg.skillsConfig.double("acrobatics.roll.graceful-damage-threshold", 14.0)
             } else {
-                context.skillsConfig.double("acrobatics.roll.damage-threshold", 7.0)
+                rpg.skillsConfig.double("acrobatics.roll.damage-threshold", 7.0)
             }
             val reduced = (event.damage - threshold).coerceAtLeast(0.0)
             if (reduced <= 0.0) {
@@ -482,32 +495,34 @@ class CombatListener(private val context: OpusContext) : Listener {
                 player,
                 if (isGraceful) "gameplay.acrobatics-graceful-roll" else "gameplay.acrobatics-roll",
             )
-            var xp = event.damage.coerceAtLeast(1.0) * context.experienceConfig.acrobaticsRollXp * 0.2
-            if (hasFeatherFalling(player)) xp *= context.experienceConfig.acrobaticsFeatherFallingMultiplier
-            context.progression.awardXp(player, SkillType.ACROBATICS, xp, XpGainReason.OTHER)
+            var xp = event.damage.coerceAtLeast(1.0) * rpg.experienceConfig.acrobaticsRollXp * 0.2
+            if (hasFeatherFalling(player)) xp *= rpg.experienceConfig.acrobaticsFeatherFallingMultiplier
+            rpg.progression.awardXp(player, SkillType.ACROBATICS, xp, XpGainReason.OTHER)
         } else {
-            var xp = event.damage * context.experienceConfig.acrobaticsFallXp * 0.15
-            if (hasFeatherFalling(player)) xp *= context.experienceConfig.acrobaticsFeatherFallingMultiplier
-            context.progression.awardXp(player, SkillType.ACROBATICS, xp, XpGainReason.OTHER)
+            var xp = event.damage * rpg.experienceConfig.acrobaticsFallXp * 0.15
+            if (hasFeatherFalling(player)) xp *= rpg.experienceConfig.acrobaticsFeatherFallingMultiplier
+            rpg.progression.awardXp(player, SkillType.ACROBATICS, xp, XpGainReason.OTHER)
         }
     }
 
-    private fun hasFeatherFalling(player: Player): Boolean =
-        player.inventory.boots.containsEnchantment(Enchantment.FEATHER_FALLING)
+    private fun hasFeatherFalling(player: Player): Boolean {
+        val ench = featherFallingEnchant ?: return false
+        return player.inventory.boots.containsEnchantment(ench)
+    }
 
     private fun handleDefenderAbilities(defender: Player, event: EntityDamageByEntityEvent): Boolean {
-        val state = context.players.getCached(defender)
+        val state = rpg.players.getCached(defender)
 
         // Unarmed Arrow Deflect
         if (event.damager is AbstractArrow &&
             defender.inventory.itemInMainHand.type == Material.AIR &&
-            context.ranks.hasUnlocked(state, SubSkillType.UNARMED_ARROW_DEFLECT, defender)
+            rpg.ranks.hasUnlocked(state, SubSkillType.UNARMED_ARROW_DEFLECT, defender)
         ) {
-            val maxLvl = context.skillsConfig.maxBonusLevel("unarmed.arrow-deflect", context.config.retroMode)
-            val maxChance = context.skillsConfig.double("unarmed.arrow-deflect.chance-max", 50.0)
+            val maxLvl = rpg.skillsConfig.maxBonusLevel("unarmed.arrow-deflect", context.config.retroMode)
+            val maxChance = rpg.skillsConfig.double("unarmed.arrow-deflect.chance-max", 50.0)
             val chance =
-                context.probability.linearChancePercent(state.getLevel(SkillType.UNARMED), maxLvl, maxChance, defender)
-            if (context.probability.rollPercent(chance)) {
+                rpg.probability.linearChancePercent(state.getLevel(SkillType.UNARMED), maxLvl, maxChance, defender)
+            if (rpg.probability.rollPercent(chance)) {
                 event.isCancelled = true
                 context.locale.sendActionBar(defender, "gameplay.unarmed-deflect")
                 return true
@@ -518,14 +533,14 @@ class CombatListener(private val context: OpusContext) : Listener {
         val damagerLiving = event.damager as? LivingEntity
         if (damagerLiving != null &&
             Tag.ITEMS_SWORDS.isTagged(defender.inventory.itemInMainHand.type) &&
-            context.ranks.hasUnlocked(state, SubSkillType.SWORDS_COUNTER_ATTACK, defender)
+            rpg.ranks.hasUnlocked(state, SubSkillType.SWORDS_COUNTER_ATTACK, defender)
         ) {
-            val maxLvl = context.skillsConfig.maxBonusLevel("swords.counter-attack", context.config.retroMode)
-            val maxChance = context.skillsConfig.double("swords.counter-attack.chance-max", 30.0)
+            val maxLvl = rpg.skillsConfig.maxBonusLevel("swords.counter-attack", context.config.retroMode)
+            val maxChance = rpg.skillsConfig.double("swords.counter-attack.chance-max", 30.0)
             val chance =
-                context.probability.linearChancePercent(state.getLevel(SkillType.SWORDS), maxLvl, maxChance, defender)
-            if (context.probability.rollPercent(chance)) {
-                val mod = context.skillsConfig.double("swords.counter-attack.damage-modifier", 2.0).coerceAtLeast(1.0)
+                rpg.probability.linearChancePercent(state.getLevel(SkillType.SWORDS), maxLvl, maxChance, defender)
+            if (rpg.probability.rollPercent(chance)) {
+                val mod = rpg.skillsConfig.double("swords.counter-attack.damage-modifier", 2.0).coerceAtLeast(1.0)
                 val reflected = (event.damage / mod).coerceAtMost(damagerLiving.health * 0.5)
                 if (reflected > 0.0) {
                     damagerLiving.damage(reflected, defender)
@@ -535,28 +550,28 @@ class CombatListener(private val context: OpusContext) : Listener {
         }
 
         // Acrobatics Dodge
-        if (context.ranks.hasUnlocked(state, SubSkillType.ACROBATICS_DODGE, defender)) {
-            val maxLvl = context.skillsConfig.maxBonusLevel("acrobatics.dodge", context.config.retroMode)
-            val maxChance = context.skillsConfig.double("acrobatics.dodge.chance-max", 20.0)
-            val chance = context.probability.linearChancePercent(
+        if (rpg.ranks.hasUnlocked(state, SubSkillType.ACROBATICS_DODGE, defender)) {
+            val maxLvl = rpg.skillsConfig.maxBonusLevel("acrobatics.dodge", context.config.retroMode)
+            val maxChance = rpg.skillsConfig.double("acrobatics.dodge.chance-max", 20.0)
+            val chance = rpg.probability.linearChancePercent(
                 state.getLevel(SkillType.ACROBATICS),
                 maxLvl,
                 maxChance,
                 defender
             )
-            if (context.probability.rollPercent(chance)) {
-                val mod = context.skillsConfig.double("acrobatics.dodge.damage-modifier", 2.0).coerceAtLeast(1.0)
+            if (rpg.probability.rollPercent(chance)) {
+                val mod = rpg.skillsConfig.double("acrobatics.dodge.damage-modifier", 2.0).coerceAtLeast(1.0)
                 event.damage /= mod
                 context.locale.sendActionBar(defender, "gameplay.acrobatics-dodge")
-                val rawXp = context.experienceConfig.acrobaticsDodgeXp * 0.25
+                val rawXp = rpg.experienceConfig.acrobaticsDodgeXp * 0.25
                 val damagerId = event.damager.uniqueId
-                if (!context.experienceConfig.dodgeXpFarmingGuard) {
-                    context.progression.awardXp(defender, SkillType.ACROBATICS, rawXp, XpGainReason.OTHER)
+                if (!rpg.experienceConfig.dodgeXpFarmingGuard) {
+                    rpg.progression.awardXp(defender, SkillType.ACROBATICS, rawXp, XpGainReason.OTHER)
                 } else {
                     val used = dodgeXpPerMob[damagerId] ?: 0.0
-                    if (used < context.experienceConfig.dodgeXpCapPerMob) {
+                    if (used < rpg.experienceConfig.dodgeXpCapPerMob) {
                         dodgeXpPerMob[damagerId] = used + rawXp
-                        context.progression.awardXp(defender, SkillType.ACROBATICS, rawXp, XpGainReason.OTHER)
+                        rpg.progression.awardXp(defender, SkillType.ACROBATICS, rawXp, XpGainReason.OTHER)
                     }
                 }
             }
@@ -570,17 +585,17 @@ class CombatListener(private val context: OpusContext) : Listener {
         target: LivingEntity,
         event: EntityDamageByEntityEvent
     ) {
-        val state = context.players.getCached(owner)
+        val state = rpg.players.getCached(owner)
         val level = state.getLevel(SkillType.TAMING)
 
-        if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_SHARPENED_CLAWS, owner)) {
-            event.damage += context.skillsConfig.double("taming.sharpened-claws.bonus", 2.0)
+        if (rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_SHARPENED_CLAWS, owner)) {
+            event.damage += rpg.skillsConfig.double("taming.sharpened-claws.bonus", 2.0)
         }
-        if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_GORE, owner)) {
-            val maxLvl = context.skillsConfig.maxBonusLevel("taming.gore", context.config.retroMode)
-            val maxChance = context.skillsConfig.double("taming.gore.chance-max", 100.0)
-            if (context.probability.rollPercent(
-                    context.probability.linearChancePercent(
+        if (rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_GORE, owner)) {
+            val maxLvl = rpg.skillsConfig.maxBonusLevel("taming.gore", context.config.retroMode)
+            val maxChance = rpg.skillsConfig.double("taming.gore.chance-max", 100.0)
+            if (rpg.probability.rollPercent(
+                    rpg.probability.linearChancePercent(
                         level,
                         maxLvl,
                         maxChance,
@@ -588,21 +603,21 @@ class CombatListener(private val context: OpusContext) : Listener {
                     )
                 )
             ) {
-                event.damage *= context.skillsConfig.double("taming.gore.modifier", 2.0)
+                event.damage *= rpg.skillsConfig.double("taming.gore.modifier", 2.0)
                 applyRupture(owner, target, 1)
                 context.locale.sendActionBar(owner, "gameplay.taming-gore")
             }
         }
-        if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_FAST_FOOD_SERVICE, owner)) {
-            val chance = context.skillsConfig.double("taming.fast-food-service.chance", 50.0)
-            if (context.probability.rollPercent(chance)) {
-                val maxHp = wolf.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+        if (rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_FAST_FOOD_SERVICE, owner)) {
+            val chance = rpg.skillsConfig.double("taming.fast-food-service.chance", 50.0)
+            if (rpg.probability.rollPercent(chance)) {
+                val maxHp = maxHealthAttr?.let { wolf.getAttribute(it)?.value } ?: 20.0
                 wolf.health = (wolf.health + 1.0).coerceAtMost(maxHp)
             }
         }
-        if (context.ranks.hasUnlocked(state, SubSkillType.TAMING_PUMMEL, owner)) {
-            val chance = context.skillsConfig.double("taming.pummel.chance", 10.0)
-            if (context.probability.rollPercent(chance)) {
+        if (rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_PUMMEL, owner)) {
+            val chance = rpg.skillsConfig.double("taming.pummel.chance", 10.0)
+            if (rpg.probability.rollPercent(chance)) {
                 val dir = target.location.toVector().subtract(wolf.location.toVector()).normalize()
                 target.velocity = dir.multiply(0.8).setY(0.3)
             }
@@ -616,27 +631,27 @@ class CombatListener(private val context: OpusContext) : Listener {
         target: LivingEntity,
         event: EntityDamageByEntityEvent
     ) {
-        val state = context.players.getCached(shooter)
+        val state = rpg.players.getCached(shooter)
 
         if (proj is Trident) {
             if (!canTriggerCombat(SkillType.TRIDENTS, target)) return
-            val impaleRank = context.ranks.getRank(state, SubSkillType.TRIDENTS_IMPALE)
+            val impaleRank = rpg.ranks.getRank(state, SubSkillType.TRIDENTS_IMPALE)
             if (impaleRank > 0) {
-                event.damage += context.skillsConfig.double("tridents.impale.base-damage", 1.0) +
-                        impaleRank * context.skillsConfig.double("tridents.impale.rank-damage-multiplier", 0.5)
+                event.damage += rpg.skillsConfig.double("tridents.impale.base-damage", 1.0) +
+                        impaleRank * rpg.skillsConfig.double("tridents.impale.rank-damage-multiplier", 0.5)
             }
             event.damage += limitBreakBonus(shooter, target, SubSkillType.TRIDENTS_TRIDENTS_LIMIT_BREAK, 1.0)
             awardCombatXp(shooter, SkillType.TRIDENTS, target, event.damage)
             return
         }
 
-        if (proj is Arrow && proj.weapon?.type == Material.CROSSBOW) {
+        if (proj is Arrow && PlatformCompat.getArrowWeaponType(proj) == Material.CROSSBOW) {
             if (!canTriggerCombat(SkillType.CROSSBOWS, target)) return
-            val rank = context.ranks.getRank(state, SubSkillType.CROSSBOWS_POWERED_SHOT)
+            val rank = rpg.ranks.getRank(state, SubSkillType.CROSSBOWS_POWERED_SHOT)
             if (rank > 0) {
                 val pct =
-                    rank * context.skillsConfig.double("crossbows.powered-shot.rank-damage-multiplier", 10.0) / 100.0
-                val maxDmg = context.skillsConfig.double("crossbows.powered-shot.max-damage", 9.0)
+                    rank * rpg.skillsConfig.double("crossbows.powered-shot.rank-damage-multiplier", 10.0) / 100.0
+                val maxDmg = rpg.skillsConfig.double("crossbows.powered-shot.max-damage", 9.0)
                 event.damage += (event.damage * pct).coerceAtMost(maxDmg)
             }
             event.damage += limitBreakBonus(shooter, target, SubSkillType.CROSSBOWS_CROSSBOWS_LIMIT_BREAK, 1.0)
@@ -646,18 +661,18 @@ class CombatListener(private val context: OpusContext) : Listener {
 
         if (proj is AbstractArrow) {
             if (!canTriggerCombat(SkillType.ARCHERY, target)) return
-            val rank = context.ranks.getRank(state, SubSkillType.ARCHERY_SKILL_SHOT)
+            val rank = rpg.ranks.getRank(state, SubSkillType.ARCHERY_SKILL_SHOT)
             if (rank > 0) {
-                val pct = rank * context.skillsConfig.double("archery.skill-shot.rank-damage-multiplier", 10.0) / 100.0
-                val maxDmg = context.skillsConfig.double("archery.skill-shot.max-damage", 9.0)
+                val pct = rank * rpg.skillsConfig.double("archery.skill-shot.rank-damage-multiplier", 10.0) / 100.0
+                val maxDmg = rpg.skillsConfig.double("archery.skill-shot.max-damage", 9.0)
                 event.damage += (event.damage * pct).coerceAtMost(maxDmg)
             }
             event.damage += limitBreakBonus(shooter, target, SubSkillType.ARCHERY_ARCHERY_LIMIT_BREAK, 1.0)
-            if (target is Player && context.ranks.hasUnlocked(state, SubSkillType.ARCHERY_DAZE, shooter)) {
-                val maxLvl = context.skillsConfig.maxBonusLevel("archery.daze", context.config.retroMode)
-                val maxChance = context.skillsConfig.double("archery.daze.chance-max", 50.0)
-                if (context.probability.rollPercent(
-                        context.probability.linearChancePercent(
+            if (target is Player && rpg.ranks.hasUnlocked(state, SubSkillType.ARCHERY_DAZE, shooter)) {
+                val maxLvl = rpg.skillsConfig.maxBonusLevel("archery.daze", context.config.retroMode)
+                val maxChance = rpg.skillsConfig.double("archery.daze.chance-max", 50.0)
+                if (rpg.probability.rollPercent(
+                        rpg.probability.linearChancePercent(
                             state.getLevel(SkillType.ARCHERY),
                             maxLvl,
                             maxChance,
@@ -666,19 +681,19 @@ class CombatListener(private val context: OpusContext) : Listener {
                         )
                     )
                 ) {
-                    event.damage += context.skillsConfig.double("archery.daze.bonus-damage", 4.0)
-                    target.addPotionEffect(PotionEffect(PotionEffectType.NAUSEA, 120, 0))
+                    event.damage += rpg.skillsConfig.double("archery.daze.bonus-damage", 4.0)
+                    nauseaEffect?.let { target.addPotionEffect(PotionEffect(it, 120, 0)) }
                     context.locale.sendActionBar(shooter, "gameplay.archery-daze")
                 }
             }
             if (target !is Player &&
                 !proj.persistentDataContainer.has(infinityArrowKey, PersistentDataType.BYTE) &&
-                context.ranks.hasUnlocked(state, SubSkillType.ARCHERY_ARROW_RETRIEVAL, shooter)
+                rpg.ranks.hasUnlocked(state, SubSkillType.ARCHERY_ARROW_RETRIEVAL, shooter)
             ) {
-                val maxLvl = context.skillsConfig.maxBonusLevel("archery.arrow-retrieval", context.config.retroMode)
-                val maxChance = context.skillsConfig.double("archery.arrow-retrieval.chance-max", 100.0)
-                if (context.probability.rollPercent(
-                        context.probability.linearChancePercent(
+                val maxLvl = rpg.skillsConfig.maxBonusLevel("archery.arrow-retrieval", context.config.retroMode)
+                val maxChance = rpg.skillsConfig.double("archery.arrow-retrieval.chance-max", 100.0)
+                if (rpg.probability.rollPercent(
+                        rpg.probability.linearChancePercent(
                             state.getLevel(SkillType.ARCHERY),
                             maxLvl,
                             maxChance,
@@ -691,30 +706,30 @@ class CombatListener(private val context: OpusContext) : Listener {
                 }
             }
             val distBonus =
-                1.0 + shooter.location.distance(target.location) * context.experienceConfig.archeryDistanceMultiplier
+                1.0 + shooter.location.distance(target.location) * rpg.experienceConfig.archeryDistanceMultiplier
             awardCombatXp(shooter, SkillType.ARCHERY, target, event.damage * distBonus)
         }
     }
 
     private fun handleMeleeAttack(attacker: Player, target: LivingEntity, event: EntityDamageByEntityEvent) {
         val hand = attacker.inventory.itemInMainHand.type
-        val state = context.players.getCached(attacker)
-        val maxBaseDmg = attacker.getAttribute(Attribute.ATTACK_DAMAGE)?.value ?: 1.0
+        val state = rpg.players.getCached(attacker)
+        val maxBaseDmg = attackDamageAttr?.let { attacker.getAttribute(it)?.value } ?: 1.0
         val strength = CombatLimitBreak.deriveAttackStrengthScale(
             rawEventDamage = event.damage,
             maxBaseAttackDamage = maxBaseDmg,
             isSweepAttack = event.cause == EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK,
-            adjustForCooldown = context.skillsConfig.adjustForAttackCooldown,
+            adjustForCooldown = rpg.skillsConfig.adjustForAttackCooldown,
         )
 
         when {
             hand == Material.AIR -> {
                 if (!canTriggerCombat(SkillType.UNARMED, target)) return
-                val berserk = context.progression.tryActivateAbility(attacker, SkillType.UNARMED) ||
+                val berserk = rpg.progression.tryActivateAbility(attacker, SkillType.UNARMED) ||
                         state.isAbilityActive(SuperAbilityType.BERSERK)
-                val rank = context.ranks.getRank(state, SubSkillType.UNARMED_STEEL_ARM_STYLE)
+                val rank = rpg.ranks.getRank(state, SubSkillType.UNARMED_STEEL_ARM_STYLE)
                 if (rank > 0) {
-                    event.damage += context.skillsConfig.doubleAtRank(
+                    event.damage += rpg.skillsConfig.doubleAtRank(
                         "unarmed.steel-arm-style.rank-damage",
                         rank,
                         1.0
@@ -724,10 +739,10 @@ class CombatListener(private val context: OpusContext) : Listener {
                 if (berserk) {
                     event.damage *= 1.5
                 }
-                if (target is Player && context.ranks.hasUnlocked(state, SubSkillType.UNARMED_DISARM, attacker)) {
-                    val maxLvl = context.skillsConfig.maxBonusLevel("unarmed.disarm", context.config.retroMode)
-                    val maxChance = context.skillsConfig.double("unarmed.disarm.chance-max", 33.0)
-                    val chance = context.probability.linearChancePercent(
+                if (target is Player && rpg.ranks.hasUnlocked(state, SubSkillType.UNARMED_DISARM, attacker)) {
+                    val maxLvl = rpg.skillsConfig.maxBonusLevel("unarmed.disarm", context.config.retroMode)
+                    val maxChance = rpg.skillsConfig.double("unarmed.disarm.chance-max", 33.0)
+                    val chance = rpg.probability.linearChancePercent(
                         state.getLevel(SkillType.UNARMED),
                         maxLvl,
                         maxChance,
@@ -735,7 +750,7 @@ class CombatListener(private val context: OpusContext) : Listener {
                         strength,
                         skill = SkillType.UNARMED,
                     )
-                    if (context.probability.rollPercent(chance)) {
+                    if (rpg.probability.rollPercent(chance)) {
                         tryDisarm(attacker, target)
                     }
                 }
@@ -744,26 +759,26 @@ class CombatListener(private val context: OpusContext) : Listener {
 
             Tag.ITEMS_SWORDS.isTagged(hand) -> {
                 if (!canTriggerCombat(SkillType.SWORDS, target)) return
-                val serrated = context.progression.tryActivateAbility(attacker, SkillType.SWORDS) ||
+                val serrated = rpg.progression.tryActivateAbility(attacker, SkillType.SWORDS) ||
                         state.isAbilityActive(SuperAbilityType.SERRATED_STRIKES)
-                val stabRank = context.ranks.getRank(state, SubSkillType.SWORDS_STAB)
+                val stabRank = rpg.ranks.getRank(state, SubSkillType.SWORDS_STAB)
                 if (stabRank > 0) {
-                    event.damage += (context.skillsConfig.double("swords.stab.base-damage", 1.0) +
-                            stabRank * context.skillsConfig.double("swords.stab.per-rank-multiplier", 1.5)) * strength
+                    event.damage += (rpg.skillsConfig.double("swords.stab.base-damage", 1.0) +
+                            stabRank * rpg.skillsConfig.double("swords.stab.per-rank-multiplier", 1.5)) * strength
                 }
                 event.damage += limitBreakBonus(attacker, target, SubSkillType.SWORDS_SWORDS_LIMIT_BREAK, strength)
-                val ruptureRank = context.ranks.getRank(state, SubSkillType.SWORDS_RUPTURE)
+                val ruptureRank = rpg.ranks.getRank(state, SubSkillType.SWORDS_RUPTURE)
                 if (ruptureRank > 0) {
                     val chance =
-                        context.skillsConfig.doubleAtRank("swords.rupture.chances", ruptureRank, 15.0) * strength
-                    if (context.probability.rollPercent(chance)) {
+                        rpg.skillsConfig.doubleAtRank("swords.rupture.chances", ruptureRank, 15.0) * strength
+                    if (rpg.probability.rollPercent(chance)) {
                         applyRupture(attacker, target, ruptureRank)
                         context.locale.sendActionBar(attacker, "gameplay.swords-rupture")
                     }
                 }
                 if (serrated) {
                     val mod =
-                        context.skillsConfig.double("swords.serrated-strikes.damage-modifier", 4.0).coerceAtLeast(1.0)
+                        rpg.skillsConfig.double("swords.serrated-strikes.damage-modifier", 4.0).coerceAtLeast(1.0)
                     dealCleaveDamage(attacker, target, event.damage / mod, 2.5)
                     applyRupture(attacker, target, ruptureRank.coerceAtLeast(1))
                 }
@@ -772,49 +787,49 @@ class CombatListener(private val context: OpusContext) : Listener {
 
             Tag.ITEMS_AXES.isTagged(hand) -> {
                 if (!canTriggerCombat(SkillType.AXES, target)) return
-                val splitter = context.progression.tryActivateAbility(attacker, SkillType.AXES) ||
+                val splitter = rpg.progression.tryActivateAbility(attacker, SkillType.AXES) ||
                         state.isAbilityActive(SuperAbilityType.SKULL_SPLITTER)
-                val masteryRank = context.ranks.getRank(state, SubSkillType.AXES_AXE_MASTERY)
+                val masteryRank = rpg.ranks.getRank(state, SubSkillType.AXES_AXE_MASTERY)
                 if (masteryRank > 0) {
-                    event.damage += masteryRank * context.skillsConfig.double(
+                    event.damage += masteryRank * rpg.skillsConfig.double(
                         "axes.axe-mastery.rank-damage-multiplier",
                         1.0
                     ) * strength
                 }
                 event.damage += limitBreakBonus(attacker, target, SubSkillType.AXES_AXES_LIMIT_BREAK, strength)
-                if (context.ranks.hasUnlocked(state, SubSkillType.AXES_CRITICAL_STRIKES, attacker)) {
-                    val maxLvl = context.skillsConfig.maxBonusLevel("axes.critical-strikes", context.config.retroMode)
-                    val maxChance = context.skillsConfig.double("axes.critical-strikes.chance-max", 37.5)
-                    val chance = context.probability.linearChancePercent(
+                if (rpg.ranks.hasUnlocked(state, SubSkillType.AXES_CRITICAL_STRIKES, attacker)) {
+                    val maxLvl = rpg.skillsConfig.maxBonusLevel("axes.critical-strikes", context.config.retroMode)
+                    val maxChance = rpg.skillsConfig.double("axes.critical-strikes.chance-max", 37.5)
+                    val chance = rpg.probability.linearChancePercent(
                         state.getLevel(SkillType.AXES),
                         maxLvl,
                         maxChance,
                         attacker,
                         strength
                     )
-                    if (context.probability.rollPercent(chance)) {
+                    if (rpg.probability.rollPercent(chance)) {
                         val mult = if (target is Player) {
-                            context.skillsConfig.double("axes.critical-strikes.pvp-modifier", 1.5)
+                            rpg.skillsConfig.double("axes.critical-strikes.pvp-modifier", 1.5)
                         } else {
-                            context.skillsConfig.double("axes.critical-strikes.pve-modifier", 2.0)
+                            rpg.skillsConfig.double("axes.critical-strikes.pve-modifier", 2.0)
                         }
                         event.damage *= mult
                         context.locale.sendActionBar(attacker, "gameplay.axes-critical")
                     }
                 }
-                if (context.ranks.hasUnlocked(state, SubSkillType.AXES_GREATER_IMPACT, attacker)) {
-                    val chance = context.skillsConfig.double("axes.greater-impact.chance", 25.0) * strength
-                    if (context.probability.rollPercent(chance)) {
-                        event.damage += context.skillsConfig.double("axes.greater-impact.bonus-damage", 2.0)
-                        val kb = context.skillsConfig.double("axes.greater-impact.knockback-modifier", 1.5)
+                if (rpg.ranks.hasUnlocked(state, SubSkillType.AXES_GREATER_IMPACT, attacker)) {
+                    val chance = rpg.skillsConfig.double("axes.greater-impact.chance", 25.0) * strength
+                    if (rpg.probability.rollPercent(chance)) {
+                        event.damage += rpg.skillsConfig.double("axes.greater-impact.bonus-damage", 2.0)
+                        val kb = rpg.skillsConfig.double("axes.greater-impact.knockback-modifier", 1.5)
                         val dir = target.location.toVector().subtract(attacker.location.toVector()).normalize()
                         target.velocity = dir.multiply(kb * 0.6).setY(0.35)
                         context.locale.sendActionBar(attacker, "gameplay.axes-greater-impact")
                     }
                 }
-                val armorImpactRank = context.ranks.getRank(state, SubSkillType.AXES_ARMOR_IMPACT)
-                if (armorImpactRank > 0 && context.probability.rollPercent(
-                        context.skillsConfig.double(
+                val armorImpactRank = rpg.ranks.getRank(state, SubSkillType.AXES_ARMOR_IMPACT)
+                if (armorImpactRank > 0 && rpg.probability.rollPercent(
+                        rpg.skillsConfig.double(
                             "axes.armor-impact.chance",
                             25.0
                         ) * strength
@@ -824,67 +839,69 @@ class CombatListener(private val context: OpusContext) : Listener {
                     context.locale.sendActionBar(attacker, "gameplay.axes-armor-impact")
                 }
                 if (splitter) {
-                    val mod = context.skillsConfig.double("axes.skull-splitter.damage-modifier", 2.0).coerceAtLeast(1.0)
+                    val mod = rpg.skillsConfig.double("axes.skull-splitter.damage-modifier", 2.0).coerceAtLeast(1.0)
                     dealCleaveDamage(attacker, target, event.damage / mod, 2.5)
                 }
                 awardCombatXp(attacker, SkillType.AXES, target, event.damage)
             }
 
-            hand == Material.MACE -> {
+            PlatformCompat.isMace(hand) -> {
                 if (!canTriggerCombat(SkillType.MACES, target)) return
-                val slam = context.progression.tryActivateAbility(attacker, SkillType.MACES) ||
+                val slam = rpg.progression.tryActivateAbility(attacker, SkillType.MACES) ||
                         state.isAbilityActive(SuperAbilityType.MACES_SUPER_ABILITY)
-                val crushRank = context.ranks.getRank(state, SubSkillType.MACES_CRUSH)
+                val crushRank = rpg.ranks.getRank(state, SubSkillType.MACES_CRUSH)
                 if (crushRank > 0) {
-                    event.damage += (context.skillsConfig.double("maces.crush.base-damage", 0.5) +
-                            crushRank * context.skillsConfig.double(
+                    event.damage += (rpg.skillsConfig.double("maces.crush.base-damage", 0.5) +
+                            crushRank * rpg.skillsConfig.double(
                         "maces.crush.rank-damage-multiplier",
                         1.0
                     )) * strength
                 }
                 event.damage += limitBreakBonus(attacker, target, SubSkillType.MACES_MACES_LIMIT_BREAK, strength)
-                val crippleRank = context.ranks.getRank(state, SubSkillType.MACES_CRIPPLE)
+                val crippleRank = rpg.ranks.getRank(state, SubSkillType.MACES_CRIPPLE)
                 if (crippleRank > 0) {
                     val chance =
-                        context.skillsConfig.doubleAtRank("maces.cripple.chances", crippleRank, 10.0) * strength
-                    if (context.probability.rollPercent(chance)) {
+                        rpg.skillsConfig.doubleAtRank("maces.cripple.chances", crippleRank, 10.0) * strength
+                    if (rpg.probability.rollPercent(chance)) {
                         val dur = if (target is Player) 20 else 60
-                        target.addPotionEffect(
-                            PotionEffect(
-                                PotionEffectType.SLOWNESS,
-                                dur,
-                                if (target is Player) 1 else 2
+                        slownessEffect?.let { eff ->
+                            target.addPotionEffect(
+                                PotionEffect(
+                                    eff,
+                                    dur,
+                                    if (target is Player) 1 else 2
+                                )
                             )
-                        )
+                        }
                         target.world.spawnParticle(Particle.CRIT, target.location.add(0.0, 1.0, 0.0), 10)
                         context.locale.sendActionBar(attacker, "gameplay.maces-cripple")
                     }
                 }
                 if (slam) {
                     dealCleaveDamage(attacker, target, event.damage * 0.5, 3.0)
-                    target.world.spawnParticle(Particle.EXPLOSION, target.location, 1)
+                    explosionParticle?.let { target.world.spawnParticle(it, target.location, 1) }
                 }
                 awardCombatXp(attacker, SkillType.MACES, target, event.damage)
             }
 
-            Tag.ITEMS_SPEARS.isTagged(hand) -> {
+            PlatformCompat.isSpear(hand) -> {
                 if (!canTriggerCombat(SkillType.SPEARS, target)) return
-                val thrust = context.progression.tryActivateAbility(attacker, SkillType.SPEARS) ||
+                val thrust = rpg.progression.tryActivateAbility(attacker, SkillType.SPEARS) ||
                         state.isAbilityActive(SuperAbilityType.SPEARS_SUPER_ABILITY)
-                val masteryRank = context.ranks.getRank(state, SubSkillType.SPEARS_SPEAR_MASTERY)
+                val masteryRank = rpg.ranks.getRank(state, SubSkillType.SPEARS_SPEAR_MASTERY)
                 if (masteryRank > 0) {
-                    event.damage += masteryRank * context.skillsConfig.double(
+                    event.damage += masteryRank * rpg.skillsConfig.double(
                         "spears.spear-mastery.rank-damage-multiplier",
                         0.4
                     ) * strength
                 }
                 event.damage += limitBreakBonus(attacker, target, SubSkillType.SPEARS_SPEARS_LIMIT_BREAK, strength)
-                val momentumRank = context.ranks.getRank(state, SubSkillType.SPEARS_MOMENTUM)
+                val momentumRank = rpg.ranks.getRank(state, SubSkillType.SPEARS_MOMENTUM)
                 if (momentumRank > 0) {
                     val chance =
-                        context.skillsConfig.doubleAtRank("spears.momentum.chances", momentumRank, 5.0) * strength
-                    if (context.probability.rollPercent(chance)) {
-                        attacker.addPotionEffect(PotionEffect(PotionEffectType.SPEED, 20 * (momentumRank * 2), 1))
+                        rpg.skillsConfig.doubleAtRank("spears.momentum.chances", momentumRank, 5.0) * strength
+                    if (rpg.probability.rollPercent(chance)) {
+                        speedEffect?.let { attacker.addPotionEffect(PotionEffect(it, 20 * (momentumRank * 2), 1)) }
                         context.locale.sendActionBar(attacker, "gameplay.spears-momentum")
                     }
                 }
@@ -896,12 +913,12 @@ class CombatListener(private val context: OpusContext) : Listener {
 
             hand == Material.TRIDENT -> {
                 if (!canTriggerCombat(SkillType.TRIDENTS, target)) return
-                val surge = context.progression.tryActivateAbility(attacker, SkillType.TRIDENTS) ||
+                val surge = rpg.progression.tryActivateAbility(attacker, SkillType.TRIDENTS) ||
                         state.isAbilityActive(SuperAbilityType.TRIDENTS_SUPER_ABILITY)
-                val impaleRank = context.ranks.getRank(state, SubSkillType.TRIDENTS_IMPALE)
+                val impaleRank = rpg.ranks.getRank(state, SubSkillType.TRIDENTS_IMPALE)
                 if (impaleRank > 0) {
-                    event.damage += (context.skillsConfig.double("tridents.impale.base-damage", 1.0) +
-                            impaleRank * context.skillsConfig.double(
+                    event.damage += (rpg.skillsConfig.double("tridents.impale.base-damage", 1.0) +
+                            impaleRank * rpg.skillsConfig.double(
                         "tridents.impale.rank-damage-multiplier",
                         0.5
                     )) * strength
@@ -921,16 +938,16 @@ class CombatListener(private val context: OpusContext) : Listener {
         subSkill: SubSkillType,
         strength: Double
     ): Double {
-        if (target !is Player && !context.skillsConfig.limitBreakAllowPve) return 0.0
-        val state = context.players.getCached(attacker)
-        if (!context.ranks.hasUnlocked(state, subSkill, attacker)) return 0.0
-        val rank = context.ranks.getRank(state, subSkill)
+        if (target !is Player && !rpg.skillsConfig.limitBreakAllowPve) return 0.0
+        val state = rpg.players.getCached(attacker)
+        if (!rpg.ranks.hasUnlocked(state, subSkill, attacker)) return 0.0
+        val rank = rpg.ranks.getRank(state, subSkill)
         val armorQuality = if (target is Player) CombatLimitBreak.armorQualityOf(target) else 1000
         return CombatLimitBreak.calculateBonus(rank, armorQuality) * strength
     }
 
     private fun isInvalidCombatEntity(entity: Entity): Boolean {
-        val exp = context.experienceConfig
+        val exp = rpg.experienceConfig
         if (exp.preventArmorStandInteraction && entity is ArmorStand) return true
         if (exp.preventMannequinInteraction && entity.type.name == "MANNEQUIN") return true
         if (exp.preventPluginNpcInteraction && entity.hasMetadata("NPC")) return true
@@ -939,40 +956,40 @@ class CombatListener(private val context: OpusContext) : Listener {
 
     private fun canTriggerCombat(skill: SkillType, target: LivingEntity): Boolean {
         val isPvp = target is Player || (target is Tameable && target.isTamed)
-        return if (isPvp) context.skillsConfig.isPvpEnabled(skill) else context.skillsConfig.isPveEnabled(skill)
+        return if (isPvp) rpg.skillsConfig.isPvpEnabled(skill) else rpg.skillsConfig.isPveEnabled(skill)
     }
 
     private fun awardCombatXp(player: Player, skill: SkillType, target: LivingEntity, damage: Double) {
         val reason = if (target is Player) XpGainReason.PVP else XpGainReason.PVE
-        if (reason == XpGainReason.PVP && !context.experienceConfig.pvpMultiplier.let { it > 0.0 }) return
+        if (reason == XpGainReason.PVP && !rpg.experienceConfig.pvpMultiplier.let { it > 0.0 }) return
 
-        val spawnReason = context.placedBlocks.getSpawnReason(target)
+        val spawnReason = rpg.placedBlocks.getSpawnReason(target)
         val spawnMult = when (spawnReason) {
-            "SPAWNER" -> context.experienceConfig.spawnerMultiplier
-            "SPAWN_EGG" -> context.experienceConfig.spawnEggMultiplier
-            "NETHER_PORTAL" -> context.experienceConfig.netherPortalMultiplier
-            "BREEDING" -> context.experienceConfig.breedingMultiplier
+            "SPAWNER" -> rpg.experienceConfig.spawnerMultiplier
+            "SPAWN_EGG" -> rpg.experienceConfig.spawnEggMultiplier
+            "NETHER_PORTAL" -> rpg.experienceConfig.netherPortalMultiplier
+            "BREEDING" -> rpg.experienceConfig.breedingMultiplier
             "ENDERMITE_FARM" -> 0.0
-            else -> if (target is Tameable && target.isTamed) context.experienceConfig.playerTamedMultiplier else 1.0
+            else -> if (target is Tameable && target.isTamed) rpg.experienceConfig.playerTamedMultiplier else 1.0
         }
         if (spawnMult <= 0.0) return
 
-        val cappedDmg = if (context.experienceConfig.combatXpCeilingEnabled) {
-            damage.coerceAtMost(context.experienceConfig.combatXpDamageLimit)
+        val cappedDmg = if (rpg.experienceConfig.combatXpCeilingEnabled) {
+            damage.coerceAtMost(rpg.experienceConfig.combatXpDamageLimit)
         } else {
             damage
         }
-        val entityMult = context.experienceConfig.combatMultiplier(target.type)
+        val entityMult = rpg.experienceConfig.combatMultiplier(target.type)
         val rawXp = cappedDmg * 10.0 * entityMult * spawnMult
-        context.progression.awardXp(player, skill, rawXp, reason)
+        rpg.progression.awardXp(player, skill, rawXp, reason)
     }
 
     private fun applyRupture(attacker: Player, target: LivingEntity, rank: Int) {
-        val durationSec = context.skillsConfig.int("swords.rupture.duration-seconds", 5).coerceAtLeast(1)
+        val durationSec = rpg.skillsConfig.int("swords.rupture.duration-seconds", 5).coerceAtLeast(1)
         val dmgPerTick = if (target is Player) {
-            context.skillsConfig.doubleAtRank("swords.rupture.player-tick-damage", rank, 0.1)
+            rpg.skillsConfig.doubleAtRank("swords.rupture.player-tick-damage", rank, 0.1)
         } else {
-            context.skillsConfig.doubleAtRank("swords.rupture.mob-tick-damage", rank, 0.5)
+            rpg.skillsConfig.doubleAtRank("swords.rupture.mob-tick-damage", rank, 0.5)
         }
         val expiresAt = System.currentTimeMillis() + durationSec * 1000L
         val alreadyRunning = activeRuptures.containsKey(target.uniqueId)
@@ -1013,7 +1030,7 @@ class CombatListener(private val context: OpusContext) : Listener {
     private fun applyArmorImpact(target: LivingEntity, rank: Int) {
         val equipment = target.equipment ?: return
         val dmg =
-            (rank * context.skillsConfig.double("axes.armor-impact.damage-per-rank", 6.5)).toInt().coerceAtLeast(1)
+            (rank * rpg.skillsConfig.double("axes.armor-impact.damage-per-rank", 6.5)).toInt().coerceAtLeast(1)
         for (piece in equipment.armorContents) {
             if (piece == null || piece.type == Material.AIR) continue
             val meta = piece.itemMeta as? Damageable ?: continue
@@ -1026,17 +1043,17 @@ class CombatListener(private val context: OpusContext) : Listener {
     }
 
     private fun tryDisarm(attacker: Player, target: Player) {
-        val targetState = context.players.getCached(target)
-        if (context.ranks.hasUnlocked(targetState, SubSkillType.UNARMED_IRON_GRIP, target)) {
-            val maxLvl = context.skillsConfig.maxBonusLevel("unarmed.iron-grip", context.config.retroMode)
-            val maxChance = context.skillsConfig.double("unarmed.iron-grip.chance-max", 100.0)
-            val resist = context.probability.linearChancePercent(
+        val targetState = rpg.players.getCached(target)
+        if (rpg.ranks.hasUnlocked(targetState, SubSkillType.UNARMED_IRON_GRIP, target)) {
+            val maxLvl = rpg.skillsConfig.maxBonusLevel("unarmed.iron-grip", context.config.retroMode)
+            val maxChance = rpg.skillsConfig.double("unarmed.iron-grip.chance-max", 100.0)
+            val resist = rpg.probability.linearChancePercent(
                 targetState.getLevel(SkillType.UNARMED),
                 maxLvl,
                 maxChance,
                 target
             )
-            if (context.probability.rollPercent(resist)) {
+            if (rpg.probability.rollPercent(resist)) {
                 context.locale.sendActionBar(target, "gameplay.unarmed-iron-grip")
                 return
             }
@@ -1044,9 +1061,9 @@ class CombatListener(private val context: OpusContext) : Listener {
         val held = target.inventory.itemInMainHand
         if (held.type == Material.AIR) return
         val clone = held.clone()
-        target.inventory.itemInMainHand = ItemStack(Material.AIR)
+        target.inventory.setItemInMainHand(ItemStack(Material.AIR))
         val dropped = target.world.dropItemNaturally(target.location, clone)
-        if (context.skillsConfig.boolean("unarmed.disarm.anti-theft", false)) {
+        if (rpg.skillsConfig.boolean("unarmed.disarm.anti-theft", false)) {
             dropped.persistentDataContainer.set(disarmOwnerKey, PersistentDataType.STRING, target.uniqueId.toString())
             dropped.persistentDataContainer.set(
                 disarmExpiryKey,
@@ -1058,25 +1075,25 @@ class CombatListener(private val context: OpusContext) : Listener {
     }
 
     private fun tryCallOfTheWild(player: Player, item: ItemStack): Boolean {
-        val state = context.players.getCached(player)
-        if (!context.ranks.hasUnlocked(state, SubSkillType.TAMING_CALL_OF_THE_WILD, player)) return false
+        val state = rpg.players.getCached(player)
+        if (!rpg.ranks.hasUnlocked(state, SubSkillType.TAMING_CALL_OF_THE_WILD, player)) return false
 
         val (entityType, requiredAmount, mobName) = when (item.type) {
             Material.BONE -> Triple(
                 EntityType.WOLF,
-                context.skillsConfig.int("taming.call-of-the-wild.wolf-bones", 10),
+                rpg.skillsConfig.int("taming.call-of-the-wild.wolf-bones", 10),
                 "Wolf"
             )
 
             Material.COD, Material.SALMON -> Triple(
                 EntityType.CAT,
-                context.skillsConfig.int("taming.call-of-the-wild.ocelot-fish", 10),
+                rpg.skillsConfig.int("taming.call-of-the-wild.ocelot-fish", 10),
                 "Cat"
             )
 
             Material.APPLE, Material.GOLDEN_APPLE -> Triple(
                 EntityType.HORSE,
-                context.skillsConfig.int("taming.call-of-the-wild.horse-apples", 10),
+                rpg.skillsConfig.int("taming.call-of-the-wild.horse-apples", 10),
                 "Horse"
             )
 
@@ -1084,7 +1101,7 @@ class CombatListener(private val context: OpusContext) : Listener {
         }
 
         val now = System.currentTimeMillis()
-        val cdSec = context.skillsConfig.int("taming.call-of-the-wild.cooldown-seconds", 30)
+        val cdSec = rpg.skillsConfig.int("taming.call-of-the-wild.cooldown-seconds", 30)
         val nextAllowed = callOfWildCooldowns[player.uniqueId] ?: 0L
         if (now < nextAllowed) {
             context.locale.sendActionBar(
@@ -1095,7 +1112,7 @@ class CombatListener(private val context: OpusContext) : Listener {
             return true
         }
 
-        val maxSummons = context.skillsConfig.int("taming.call-of-the-wild.max-summons", 2).coerceAtLeast(1)
+        val maxSummons = rpg.skillsConfig.int("taming.call-of-the-wild.max-summons", 2).coerceAtLeast(1)
         val ownerSummons = activeSummonsByOwner.computeIfAbsent(player.uniqueId) { ConcurrentHashMap.newKeySet() }
         ownerSummons.removeIf { !it.isValid || it.isDead }
         val activeOfType = ownerSummons.count { it.type == entityType }
@@ -1134,13 +1151,13 @@ class CombatListener(private val context: OpusContext) : Listener {
             ownerSummons.add(spawned)
             transientSummonIds.add(spawned.uniqueId)
             val lifeSec =
-                context.skillsConfig.int("taming.call-of-the-wild.summon-lifetime-seconds", 240).coerceAtLeast(10)
+                rpg.skillsConfig.int("taming.call-of-the-wild.summon-lifetime-seconds", 240).coerceAtLeast(10)
             context.scheduler.runForEntityDelayed(spawned, lifeSec * 20L) {
                 ownerSummons.remove(spawned)
                 transientSummonIds.remove(spawned.uniqueId)
                 if (spawned.isValid) {
                     spawned.world.playSound(spawned.location, Sound.BLOCK_FIRE_EXTINGUISH, 0.7f, 1.0f)
-                    spawned.world.spawnParticle(Particle.SMOKE, spawned.location.add(0.0, 0.5, 0.0), 8)
+                    smokeParticle?.let { spawned.world.spawnParticle(it, spawned.location.add(0.0, 0.5, 0.0), 8) }
                     spawned.remove()
                     if (player.isOnline) {
                         context.locale.sendActionBar(player, "gameplay.taming-summon-expired", "mob" to mobName)

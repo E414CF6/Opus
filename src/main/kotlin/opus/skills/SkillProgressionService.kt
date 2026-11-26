@@ -3,10 +3,10 @@ package opus.skills
 import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.Component
 import opus.core.OpusContext
-import opus.core.player.OpusPlayerState
 import opus.core.text.TextFormatter
 import opus.events.*
 import opus.integration.WorldGuardHook
+import opus.rpg
 import org.bukkit.Bukkit
 import org.bukkit.GameMode
 import org.bukkit.Sound
@@ -64,14 +64,14 @@ class SkillProgressionService(private val context: OpusContext) {
             return
         }
 
-        val state = context.players.getCached(player)
-        val expCfg = context.experienceConfig
+        val state = context.rpg.players.getCached(player)
+        val expCfg = context.rpg.experienceConfig
 
         var effective = rawAmount * expCfg.skillMultiplier(skill) * expCfg.globalMultiplier
         if (reason == XpGainReason.PVP) {
             effective *= expCfg.pvpMultiplier
         }
-        effective *= context.perks.resolveXpMultiplier(player, skill)
+        effective *= context.rpg.perks.resolveXpMultiplier(player, skill)
         if (expCfg.earlyGameBoostEnabled) {
             val level = state.getLevel(skill)
             val threshold = if (context.config.retroMode) 200 else 20
@@ -105,7 +105,7 @@ class SkillProgressionService(private val context: OpusContext) {
         reason: XpGainReason = XpGainReason.OTHER,
     ) {
         if (skill.isChild || amount <= 0.0) return
-        val state = context.players.getCached(player)
+        val state = context.rpg.players.getCached(player)
         val cap = effectiveLevelCap(skill, state)
         val currentLevel = state.getLevel(skill)
         if (cap in 1..currentLevel) return
@@ -124,7 +124,7 @@ class SkillProgressionService(private val context: OpusContext) {
                 xp = 0.0
                 break
             }
-            val needed = context.formula.xpToNextLevel(level, context.config.retroMode, power).toDouble()
+            val needed = context.rpg.formula.xpToNextLevel(level, context.config.retroMode, power).toDouble()
             if (xp < needed) break
 
             val prevLevel = level
@@ -141,7 +141,7 @@ class SkillProgressionService(private val context: OpusContext) {
 
         state.setSkill(skill, level, xp)
 
-        val neededAfter = context.formula.xpToNextLevel(level, context.config.retroMode, state.powerLevel())
+        val neededAfter = context.rpg.formula.xpToNextLevel(level, context.config.retroMode, state.powerLevel())
         val hud = context.getService<HudFeedbackHook>()
         hud?.onXpGain(player, state, skill, xpEvent.xpGained, neededAfter)
 
@@ -152,7 +152,7 @@ class SkillProgressionService(private val context: OpusContext) {
     }
 
     fun effectiveLevelCap(skill: SkillType, state: OpusPlayerState): Int {
-        val skillCap = context.skillsConfig.levelCap(skill)
+        val skillCap = context.rpg.skillsConfig.levelCap(skill)
         val powerCap = context.config.powerLevelCap
         if (powerCap <= 0) return skillCap
         val remainingPower = (powerCap - state.powerLevel()).coerceAtLeast(0)
@@ -163,8 +163,8 @@ class SkillProgressionService(private val context: OpusContext) {
     private fun notifySubSkillUnlocks(player: Player, skill: SkillType, oldLevel: Int, newLevel: Int) {
         val lang = context.config.language
         for (sub in skill.subSkills()) {
-            val oldRank = context.ranks.getRank(oldLevel, sub)
-            val newRank = context.ranks.getRank(newLevel, sub)
+            val oldRank = context.rpg.ranks.getRank(oldLevel, sub)
+            val newRank = context.rpg.ranks.getRank(newLevel, sub)
             if (newRank > oldRank) {
                 val subName = sub.displayName(lang)
                 context.locale.send(
@@ -220,7 +220,7 @@ class SkillProgressionService(private val context: OpusContext) {
                 broadcastFiltered(player, msg)
             }
         }
-        context.levelUpCommands.executeOnLevelUp(player, state, skill, oldLevel, newLevel, oldPower, totalPower)
+        context.rpg.levelUpCommands.executeOnLevelUp(player, state, skill, oldLevel, newLevel, oldPower, totalPower)
     }
 
     private fun broadcastFiltered(source: Player, message: net.kyori.adventure.text.Component) {
@@ -235,13 +235,13 @@ class SkillProgressionService(private val context: OpusContext) {
 
     fun readyTool(player: Player, skill: SkillType) {
         val ability = skill.superAbility() ?: return
-        val state = context.players.getCached(player)
+        val state = context.rpg.players.getCached(player)
         if (!state.abilityReadyingEnabled) return
         if (state.isAbilityActive(ability)) return
         if (!player.hasPermission(ability.permissionNode) && !player.hasPermission("opus.ability.*")) return
 
         val linked = ability.linkedSubSkill
-        if (linked != null && !context.ranks.hasUnlocked(state, linked, player)) return
+        if (linked != null && !context.rpg.ranks.hasUnlocked(state, linked, player)) return
 
         val remainingCd = state.getCooldownRemainingMillis(ability)
         if (remainingCd > 0L && !player.hasPermission("opus.bypass.cooldown")) {
@@ -272,7 +272,7 @@ class SkillProgressionService(private val context: OpusContext) {
 
     fun tryActivateAbility(player: Player, skill: SkillType): Boolean {
         val ability = skill.superAbility() ?: return false
-        val state = context.players.getCached(player)
+        val state = context.rpg.players.getCached(player)
         if (state.isAbilityActive(ability)) return true
         if (!state.isToolReadied(skill)) return false
 
@@ -282,11 +282,11 @@ class SkillProgressionService(private val context: OpusContext) {
         }
 
         val level = state.getLevel(skill)
-        val durationSec = context.perks.applyActivationDurationPerk(
+        val durationSec = context.rpg.perks.applyActivationDurationPerk(
             player,
-            context.probability.abilityDurationSeconds(level),
+            context.rpg.probability.abilityDurationSeconds(level),
         )
-        val cooldownSec = context.perks.applyCooldownPerk(player, context.skillsConfig.abilityCooldownSec)
+        val cooldownSec = context.rpg.perks.applyCooldownPerk(player, context.rpg.skillsConfig.abilityCooldownSec)
 
         val event = OpusSuperAbilityActivateEvent(player, ability, durationSec, cooldownSec)
         Bukkit.getPluginManager().callEvent(event)

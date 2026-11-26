@@ -1,10 +1,10 @@
 package opus
 
-import opus.core.config.ExperienceConfig
-import opus.core.config.FormulaCurve
-import opus.core.config.RanksConfig
-import opus.core.player.OpusPlayerState
+import opus.skills.ExperienceConfig
+import opus.skills.FormulaCurve
 import opus.skills.FormulaService
+import opus.skills.OpusPlayerState
+import opus.skills.RanksConfig
 import opus.skills.SkillType
 import opus.skills.SubSkillType
 import org.bukkit.configuration.file.YamlConfiguration

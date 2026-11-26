@@ -1,16 +1,15 @@
 package opus.core.module
 
-import io.papermc.paper.command.brigadier.Commands
-import opus.core.config.OpusConfig
+import opus.core.command.CommandRegistry
 import org.bukkit.Bukkit
 import org.bukkit.event.HandlerList
 import org.bukkit.event.Listener
 import org.bukkit.plugin.Plugin
 
 /**
- * Contract for self-contained feature modules in Opus.
+ * Contract for self-contained feature modules.
  */
-interface OpusModule {
+interface FeatureModule {
     val id: String
     val description: String
     val enabledByDefault: Boolean get() = true
@@ -20,28 +19,28 @@ interface OpusModule {
     fun onReload() {}
 
     fun listeners(): List<Listener> = emptyList()
-    fun registerCommands(registrar: Commands) {}
+    fun registerSubcommands(registry: CommandRegistry) {}
 }
 
 /**
- * Manages ordered registration, configuration gating, listener lifecycle, and reload of [OpusModule]s.
+ * Manages ordered registration, configuration gating, listener lifecycle, and reload of [FeatureModule]s.
  */
 class ModuleRegistry(
     private val plugin: Plugin,
-    private val config: OpusConfig,
+    private val enabledProvider: (id: String, defaultEnabled: Boolean) -> Boolean,
 ) {
-    private val registered = LinkedHashMap<String, OpusModule>()
-    private val active = LinkedHashMap<String, OpusModule>()
+    private val registered = LinkedHashMap<String, FeatureModule>()
+    private val active = LinkedHashMap<String, FeatureModule>()
     private val activeListeners = mutableListOf<Listener>()
 
-    fun register(module: OpusModule) {
+    fun register(module: FeatureModule) {
         require(!registered.containsKey(module.id)) { "Duplicate module id: ${module.id}" }
         registered[module.id] = module
     }
 
     fun enableAll() {
         for ((id, module) in registered) {
-            if (!config.isModuleEnabled(id, module.enabledByDefault)) {
+            if (!enabledProvider(id, module.enabledByDefault)) {
                 plugin.logger.info("Module '$id' is disabled in config.yml.")
                 continue
             }
@@ -60,10 +59,10 @@ class ModuleRegistry(
         }
     }
 
-    fun registerAllCommands(registrar: Commands) {
+    fun registerAllSubcommands(registry: CommandRegistry) {
         for (module in active.values) {
-            runCatching { module.registerCommands(registrar) }.onFailure { err ->
-                plugin.logger.severe("Failed to register commands for module '${module.id}': ${err.message}")
+            runCatching { module.registerSubcommands(registry) }.onFailure { err ->
+                plugin.logger.severe("Failed to register subcommands for module '${module.id}': ${err.message}")
                 err.printStackTrace()
             }
         }
@@ -92,5 +91,5 @@ class ModuleRegistry(
 
     fun isActive(id: String): Boolean = active.containsKey(id)
 
-    fun activeModules(): Collection<OpusModule> = active.values.toList()
+    fun activeModules(): Collection<FeatureModule> = active.values.toList()
 }

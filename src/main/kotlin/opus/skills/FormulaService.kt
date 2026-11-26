@@ -1,7 +1,5 @@
 package opus.skills
 
-import opus.core.config.ExperienceConfig
-import opus.core.config.FormulaCurve
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.floor
 import kotlin.math.pow

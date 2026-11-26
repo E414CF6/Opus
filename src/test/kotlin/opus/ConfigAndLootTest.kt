@@ -1,6 +1,6 @@
 package opus
 
-import opus.core.config.ExperienceConfig
+import opus.skills.ExperienceConfig
 import opus.modules.crafting.RepairConfig
 import opus.modules.gathering.TreasureConfig
 import opus.skills.SkillType

@@ -1,22 +1,25 @@
 package opus.modules.hud
 
-import com.mojang.brigadier.Command
-import io.papermc.paper.command.brigadier.Commands
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.Component
 import opus.core.OpusContext
 import opus.core.command.CommandHelper
-import opus.core.module.OpusModule
-import opus.core.player.OpusPlayerState
-import opus.core.player.ScoreboardMode
-import opus.core.player.XpHudMode
+import opus.core.command.CommandRegistry
+import opus.core.command.SubcommandTabCompleter
+import opus.core.compat.PlatformCompat
+import opus.core.module.FeatureModule
+import opus.core.scheduler.TaskHandle
 import opus.core.text.TextFormatter
+import opus.rpg
 import opus.skills.HudFeedbackHook
+import opus.skills.OpusPlayerState
+import opus.skills.ScoreboardMode
 import opus.skills.SkillType
 import opus.skills.SuperAbilityType
+import opus.skills.XpHudMode
+import opus.skills.skillName
+import opus.skills.subSkillName
 import org.bukkit.Bukkit
-import org.bukkit.attribute.Attribute
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -28,13 +31,13 @@ import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.scoreboard.Criteria
 import org.bukkit.scoreboard.DisplaySlot
 import org.bukkit.scoreboard.Scoreboard
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.ceil
 
 /**
- * Modern Paper 26.3 HUD service providing Adventure BossBar XP bars, ActionBar notices,
- * sidebar scoreboards, and mob health bars.
+ * HUD service providing Adventure BossBar XP bars, ActionBar notices, sidebar scoreboards,
+ * and mob health bars across Paper/Folia `1.20.4–26.3+`.
  */
 class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
 
@@ -42,25 +45,19 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
         val skill: SkillType,
         val bar: BossBar,
         var expiresAt: Long,
-        var hideTask: ScheduledTask? = null,
+        var hideTask: TaskHandle? = null,
     )
 
     private data class ActiveAbilityBossBar(
         val ability: SuperAbilityType,
         val bar: BossBar,
-        val ticker: ScheduledTask? = null,
+        val ticker: TaskHandle? = null,
     )
 
-    private data class ActiveChannelBossBar(
-        val bar: BossBar,
-        var expiresAt: Long,
-        var hideTask: ScheduledTask? = null,
-    )
-
+    private val maxHealthAttr by lazy { PlatformCompat.resolveAttribute("MAX_HEALTH", "GENERIC_MAX_HEALTH") }
     private val bossBars = ConcurrentHashMap<UUID, ActiveBossBar>()
     private val abilityBossBars = ConcurrentHashMap<UUID, ConcurrentHashMap<SuperAbilityType, ActiveAbilityBossBar>>()
-    private val channelBossBars = ConcurrentHashMap<UUID, ConcurrentHashMap<String, ActiveChannelBossBar>>()
-    private val boardHideTasks = ConcurrentHashMap<UUID, ScheduledTask>()
+    private val boardHideTasks = ConcurrentHashMap<UUID, TaskHandle>()
 
     override fun onXpGain(player: Player, state: OpusPlayerState, skill: SkillType, gained: Double, needed: Int) {
         val currentXp = state.getXp(skill)
@@ -83,7 +80,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
     }
 
     override fun onLevelUp(player: Player, state: OpusPlayerState, skill: SkillType, newLevel: Int) {
-        val needed = context.formula.xpToNextLevel(newLevel, context.config.retroMode, state.powerLevel())
+        val needed = context.rpg.formula.xpToNextLevel(newLevel, context.config.retroMode, state.powerLevel())
         if (state.hudMode == XpHudMode.BOSSBAR || state.hudMode == XpHudMode.BOTH) {
             showXpBossBar(
                 player,
@@ -91,7 +88,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
                 skill.displayName(context.config.language),
                 newLevel,
                 state.getXp(skill),
-                needed
+                needed,
             )
         }
         if (state.scoreboardMode == ScoreboardMode.KEEP) {
@@ -137,7 +134,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
             }
             val obj = ensurePowerObjective(main)
             for (online in Bukkit.getOnlinePlayers()) {
-                val power = context.players.getCached(online).powerLevel()
+                val power = context.rpg.players.getCached(online).powerLevel()
                 obj.getScore(online.name).score = power
             }
         }
@@ -155,7 +152,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
         if (!context.config.powerLevelBelowName) return
         val obj = ensurePowerObjective(board)
         for (online in Bukkit.getOnlinePlayers()) {
-            obj.getScore(online.name).score = context.players.getCached(online).powerLevel()
+            obj.getScore(online.name).score = context.rpg.players.getCached(online).powerLevel()
         }
     }
 
@@ -237,50 +234,19 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
         durationTicks: Long,
         overlay: BossBar.Overlay,
     ) {
-        val clamped = progress.coerceIn(0.0f, 1.0f)
-        val safeTicks = durationTicks.coerceAtLeast(1L)
-        val expiresAt = System.currentTimeMillis() + safeTicks * 50L
-        val perPlayer = channelBossBars.computeIfAbsent(player.uniqueId) { ConcurrentHashMap() }
-        val existing = perPlayer[channel]
-        if (existing != null) {
-            existing.bar.name(title)
-            existing.bar.color(color)
-            existing.bar.overlay(overlay)
-            existing.bar.progress(clamped)
-            existing.expiresAt = expiresAt
-            existing.hideTask?.cancel()
-            existing.hideTask = scheduleChannelBossBarHide(player, channel, expiresAt, safeTicks)
-            return
-        }
-        val bar = BossBar.bossBar(title, clamped, color, overlay)
-        player.showBossBar(bar)
-        val entry = ActiveChannelBossBar(bar, expiresAt)
-        entry.hideTask = scheduleChannelBossBarHide(player, channel, expiresAt, safeTicks)
-        perPlayer[channel] = entry
+        context.bossBar.showTemporary(
+            player = player,
+            key = channel,
+            title = title,
+            progress = progress,
+            color = color,
+            overlay = overlay,
+            durationTicks = durationTicks,
+        )
     }
 
     override fun hideChannelBossBar(player: Player, channel: String) {
-        val perPlayer = channelBossBars[player.uniqueId] ?: return
-        perPlayer.remove(channel)?.let { active ->
-            active.hideTask?.cancel()
-            player.hideBossBar(active.bar)
-        }
-    }
-
-    private fun scheduleChannelBossBarHide(
-        player: Player,
-        channel: String,
-        targetExpiry: Long,
-        delayTicks: Long,
-    ): ScheduledTask? {
-        return context.scheduler.runForEntityDelayed(player, delayTicks) {
-            val perPlayer = channelBossBars[player.uniqueId] ?: return@runForEntityDelayed
-            val active = perPlayer[channel] ?: return@runForEntityDelayed
-            if (active.expiresAt <= targetExpiry) {
-                player.hideBossBar(active.bar)
-                perPlayer.remove(channel)
-            }
-        }
+        context.bossBar.hide(player, channel)
     }
 
     private fun showXpBossBar(
@@ -326,7 +292,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
         bossBars[player.uniqueId] = entry
     }
 
-    private fun scheduleBossBarHide(player: Player, targetExpiry: Long, delayTicks: Long): ScheduledTask? {
+    private fun scheduleBossBarHide(player: Player, targetExpiry: Long, delayTicks: Long): TaskHandle? {
         return context.scheduler.runForEntityDelayed(player, delayTicks) {
             val active = bossBars[player.uniqueId] ?: return@runForEntityDelayed
             if (active.expiresAt <= targetExpiry) {
@@ -340,7 +306,11 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
         if (!context.config.scoreboardEnabled || state.scoreboardMode == ScoreboardMode.OFF) return
         val level = state.getLevel(skill)
         val needed =
-            if (skill.isChild) 0 else context.formula.xpToNextLevel(level, context.config.retroMode, state.powerLevel())
+            if (skill.isChild) 0 else context.rpg.formula.xpToNextLevel(
+                level,
+                context.config.retroMode,
+                state.powerLevel()
+            )
         val lines = mutableListOf(
             context.locale.raw("hud.board-level", "level" to level),
             if (skill.isChild) {
@@ -350,7 +320,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
             },
         )
         for (sub in skill.subSkills().take(8)) {
-            val r = context.ranks.getRank(state, sub)
+            val r = context.rpg.ranks.getRank(state, sub)
             lines += context.locale.raw(
                 "hud.board-subskill",
                 "subskill" to context.locale.subSkillName(sub),
@@ -361,14 +331,14 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
             player,
             context.locale.raw("hud.board-skill-title", "skill" to context.locale.skillName(skill)),
             lines,
-            state.scoreboardMode == ScoreboardMode.KEEP
+            state.scoreboardMode == ScoreboardMode.KEEP,
         )
     }
 
     fun showStatsBoard(
         player: Player,
         state: OpusPlayerState,
-        persistent: Boolean = state.scoreboardMode == ScoreboardMode.KEEP
+        persistent: Boolean = state.scoreboardMode == ScoreboardMode.KEEP,
     ) {
         if (!context.config.scoreboardEnabled || state.scoreboardMode == ScoreboardMode.OFF) return
         val lines = mutableListOf(context.locale.raw("hud.board-power", "power" to state.powerLevel()))
@@ -412,7 +382,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
             if (!persistent) {
                 val ticks = context.config.scoreboardDefaultSeconds * 20L
                 context.scheduler.runForEntityDelayed(player, ticks) {
-                    if (player.isOnline && context.players.getCached(player).scoreboardMode != ScoreboardMode.KEEP) {
+                    if (player.isOnline && context.rpg.players.getCached(player).scoreboardMode != ScoreboardMode.KEEP) {
                         clearBoard(player)
                     }
                 }?.let { boardHideTasks[player.uniqueId] = it }
@@ -429,7 +399,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
         val target = event.entity as? LivingEntity ?: return
         if (target is Player) return
 
-        val maxHp = target.getAttribute(Attribute.MAX_HEALTH)?.value ?: return
+        val maxHp = maxHealthAttr?.let { target.getAttribute(it)?.value } ?: return
         val remaining = (target.health - event.finalDamage).coerceAtLeast(0.0)
         when (style) {
             "BOSSBAR" -> {
@@ -486,15 +456,15 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
         context.scheduler.runForEntityDelayed(player, 20L) {
             if (!player.isOnline) return@runForEntityDelayed
             if (context.config.powerLevelBelowName) {
-                updatePowerLevelTag(player, context.players.getCached(player))
+                updatePowerLevelTag(player, context.rpg.players.getCached(player))
             }
-            if (context.config.xpEventAnnounceOnJoin && context.experienceConfig.xpEventActive) {
+            if (context.config.xpEventAnnounceOnJoin && context.rpg.experienceConfig.xpEventActive) {
                 showChannelBossBar(
                     player = player,
                     channel = XP_EVENT_CHANNEL,
                     title = context.locale.component(
                         "hud.xp-event-bossbar",
-                        mapOf("rate" to context.experienceConfig.globalMultiplier.toString()),
+                        mapOf("rate" to context.rpg.experienceConfig.globalMultiplier.toString()),
                     ),
                     color = BossBar.Color.YELLOW,
                     progress = 1.0f,
@@ -515,10 +485,7 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
             it.ticker?.cancel()
             event.player.hideBossBar(it.bar)
         }
-        channelBossBars.remove(uuid)?.values?.forEach {
-            it.hideTask?.cancel()
-            event.player.hideBossBar(it.bar)
-        }
+        context.bossBar.hideAll(event.player)
         boardHideTasks.remove(uuid)?.cancel()
     }
 
@@ -536,20 +503,12 @@ class HudService(private val context: OpusContext) : HudFeedbackHook, Listener {
             }
         }
         abilityBossBars.clear()
-        for ((uuid, map) in channelBossBars) {
-            val player = Bukkit.getPlayer(uuid)
-            map.values.forEach {
-                it.hideTask?.cancel()
-                player?.hideBossBar(it.bar)
-            }
-        }
-        channelBossBars.clear()
         boardHideTasks.values.forEach { it.cancel() }
         boardHideTasks.clear()
     }
 }
 
-class HudModule(private val context: OpusContext) : OpusModule {
+class HudModule(private val context: OpusContext) : FeatureModule {
     override val id = "hud"
     override val description = "Adventure BossBar XP bars, ActionBar alerts, sidebar scoreboard, and mob health bars"
 
@@ -571,166 +530,120 @@ class HudModule(private val context: OpusContext) : OpusModule {
 
     override fun listeners(): List<Listener> = listOf(service)
 
-    override fun registerCommands(registrar: Commands) {
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(name, "opus.hud.use", executor = { ctx, _ ->
-                    val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                        ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    HudDialogs.openSettingsDialog(context, player, service)
-                    Command.SINGLE_SUCCESS
-                })
-            },
-            "mmohud",
-            "Open HUD and notification settings dialog",
-            listOf("hud", "hudsettings"),
-        )
+    override fun registerSubcommands(registry: CommandRegistry) {
+        registry.registerSubcommand(
+            name = "mmohud",
+            description = "Open HUD and notification settings",
+            permission = "opus.hud.use",
+            aliases = listOf("hud", "hudsettings"),
+        ) { sender, _ ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            HudDialogs.openSettingsDialog(context, player, service)
+            true
+        }
 
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(
-                    name,
-                    "opus.hud.use",
-                    executor = { ctx, args ->
-                        val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                            ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        if (args.firstOrNull().equals("dialog", ignoreCase = true)) {
-                            HudDialogs.openSettingsDialog(context, player, service)
-                            return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        }
-                        val state = context.players.getCached(player)
-                        val mode = args.firstOrNull()?.uppercase()?.let { raw ->
-                            runCatching { XpHudMode.valueOf(raw) }.getOrNull()
-                        } ?: when (state.hudMode) {
-                            XpHudMode.BOSSBAR -> XpHudMode.ACTIONBAR
-                            XpHudMode.ACTIONBAR -> XpHudMode.BOTH
-                            XpHudMode.BOTH -> XpHudMode.OFF
-                            XpHudMode.OFF -> XpHudMode.BOSSBAR
-                        }
-                        state.hudMode = mode
+        registry.registerSubcommand(
+            name = "mmoxpbar",
+            description = "Configure XP HUD display mode",
+            permission = "opus.hud.use",
+            aliases = listOf("xpbarsettings"),
+            tabCompleter = SubcommandTabCompleter { _, args ->
+                val prefix = args.firstOrNull().orEmpty()
+                (XpHudMode.entries.map { it.name.lowercase() } + "dialog")
+                    .filter { it.startsWith(prefix, ignoreCase = true) }
+            },
+        ) { sender, args ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            if (args.firstOrNull().equals("dialog", ignoreCase = true)) {
+                HudDialogs.openSettingsDialog(context, player, service)
+                return@registerSubcommand true
+            }
+            val state = context.rpg.players.getCached(player)
+            val mode = args.firstOrNull()?.uppercase()?.let { raw ->
+                runCatching { XpHudMode.valueOf(raw) }.getOrNull()
+            } ?: when (state.hudMode) {
+                XpHudMode.BOSSBAR -> XpHudMode.ACTIONBAR
+                XpHudMode.ACTIONBAR -> XpHudMode.BOTH
+                XpHudMode.BOTH -> XpHudMode.OFF
+                XpHudMode.OFF -> XpHudMode.BOSSBAR
+            }
+            state.hudMode = mode
+            state.markDirty()
+            context.locale.send(player, "commands.xpbar-set", "mode" to mode.name)
+            context.locale.sendActionBar(player, "commands.xpbar-set", "mode" to mode.name)
+            true
+        }
+
+        registry.registerSubcommand(
+            name = "mcscoreboard",
+            description = "Manage Opus sidebar scoreboard",
+            permission = "opus.hud.use",
+            aliases = listOf("mcsb"),
+            tabCompleter = SubcommandTabCompleter { _, args ->
+                val prefix = args.firstOrNull().orEmpty()
+                listOf("keep", "clear", "off", "default").filter { it.startsWith(prefix, ignoreCase = true) }
+            },
+        ) { sender, args ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            val state = context.rpg.players.getCached(player)
+            when (args.firstOrNull()?.lowercase()) {
+                "keep" -> {
+                    if (context.config.scoreboardAllowKeep) {
+                        state.scoreboardMode = ScoreboardMode.KEEP
                         state.markDirty()
-                        context.locale.send(player, "commands.xpbar-set", "mode" to mode.name)
-                        context.locale.sendActionBar(player, "commands.xpbar-set", "mode" to mode.name)
-                        Command.SINGLE_SUCCESS
-                    },
-                    tabSuggester = { _, _ -> XpHudMode.entries.map { it.name.lowercase() } + "dialog" },
-                )
-            },
-            "mmoxpbar",
-            "Configure XP HUD display mode",
-            listOf("xpbarsettings"),
-        )
+                        service.showStatsBoard(player, state, persistent = true)
+                    }
+                }
 
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(
-                    name,
-                    "opus.hud.use",
-                    executor = { ctx, args ->
-                        val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                            ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                        val state = context.players.getCached(player)
-                        when (args.firstOrNull()?.lowercase()) {
-                            "keep" -> {
-                                if (context.config.scoreboardAllowKeep) {
-                                    state.scoreboardMode = ScoreboardMode.KEEP
-                                    state.markDirty()
-                                    service.showStatsBoard(player, state, persistent = true)
-                                }
-                            }
+                "clear" -> service.clearBoard(player)
 
-                            "clear" -> {
-                                service.clearBoard(player)
-                            }
-
-                            "off" -> {
-                                state.scoreboardMode = ScoreboardMode.OFF
-                                state.markDirty()
-                                service.clearBoard(player)
-                            }
-
-                            else -> {
-                                state.scoreboardMode = ScoreboardMode.DEFAULT
-                                state.markDirty()
-                                service.showStatsBoard(player, state, persistent = false)
-                            }
-                        }
-                        context.locale.send(player, "commands.scoreboard-mode", "mode" to state.scoreboardMode.name)
-                        context.locale.sendActionBar(
-                            player,
-                            "commands.scoreboard-mode",
-                            "mode" to state.scoreboardMode.name
-                        )
-                        Command.SINGLE_SUCCESS
-                    },
-                    tabSuggester = { _, _ -> listOf("keep", "clear", "off", "default") },
-                )
-            },
-            "mcscoreboard",
-            "Manage Opus sidebar scoreboard",
-            listOf("mcsb"),
-        )
-
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(name, "opus.hud.use", executor = { ctx, _ ->
-                    val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                        ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    val state = context.players.getCached(player)
-                    state.notifyAbilities = !state.notifyAbilities
+                "off" -> {
+                    state.scoreboardMode = ScoreboardMode.OFF
                     state.markDirty()
-                    context.locale.send(
-                        player,
-                        "commands.notify-toggled",
-                        "state" to if (state.notifyAbilities) "ON" else "OFF"
-                    )
-                    context.locale.sendActionBar(
-                        player,
-                        "commands.notify-toggled",
-                        "state" to if (state.notifyAbilities) "ON" else "OFF"
-                    )
-                    Command.SINGLE_SUCCESS
-                })
-            },
-            "mcnotify",
-            "Toggle ability notifications",
-            listOf("notify"),
-        )
+                    service.clearBoard(player)
+                }
 
-        CommandHelper.registerWithOptionalAliases(
-            registrar,
-            context,
-            { name ->
-                CommandHelper.simpleArgsCommand(name, "opus.hud.use", executor = { ctx, _ ->
-                    val player = CommandHelper.requirePlayer(context, ctx.source.sender)
-                        ?: return@simpleArgsCommand Command.SINGLE_SUCCESS
-                    val state = context.players.getCached(player)
-                    state.levelUpSound = !state.levelUpSound
+                else -> {
+                    state.scoreboardMode = ScoreboardMode.DEFAULT
                     state.markDirty()
-                    context.locale.send(
-                        player,
-                        "commands.sound-toggled",
-                        "state" to if (state.levelUpSound) "ON" else "OFF"
-                    )
-                    context.locale.sendActionBar(
-                        player,
-                        "commands.sound-toggled",
-                        "state" to if (state.levelUpSound) "ON" else "OFF"
-                    )
-                    Command.SINGLE_SUCCESS
-                })
-            },
-            "mclevelupsound",
-            "Toggle level-up sound",
-            listOf("levelupsound"),
-        )
+                    service.showStatsBoard(player, state, persistent = false)
+                }
+            }
+            context.locale.send(player, "commands.scoreboard-mode", "mode" to state.scoreboardMode.name)
+            context.locale.sendActionBar(player, "commands.scoreboard-mode", "mode" to state.scoreboardMode.name)
+            true
+        }
+
+        registry.registerSubcommand(
+            name = "mcnotify",
+            description = "Toggle ability notifications",
+            permission = "opus.hud.use",
+            aliases = listOf("notify"),
+        ) { sender, _ ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            val state = context.rpg.players.getCached(player)
+            state.notifyAbilities = !state.notifyAbilities
+            state.markDirty()
+            val flag = if (state.notifyAbilities) "ON" else "OFF"
+            context.locale.send(player, "commands.notify-toggled", "state" to flag)
+            context.locale.sendActionBar(player, "commands.notify-toggled", "state" to flag)
+            true
+        }
+
+        registry.registerSubcommand(
+            name = "mclevelupsound",
+            description = "Toggle level-up sound",
+            permission = "opus.hud.use",
+            aliases = listOf("levelupsound"),
+        ) { sender, _ ->
+            val player = CommandHelper.requirePlayer(context, sender) ?: return@registerSubcommand true
+            val state = context.rpg.players.getCached(player)
+            state.levelUpSound = !state.levelUpSound
+            state.markDirty()
+            val flag = if (state.levelUpSound) "ON" else "OFF"
+            context.locale.send(player, "commands.sound-toggled", "state" to flag)
+            context.locale.sendActionBar(player, "commands.sound-toggled", "state" to flag)
+            true
+        }
     }
 }
